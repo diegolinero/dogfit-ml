@@ -42,9 +42,27 @@ class MainActivity : ComponentActivity() {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
     }
 
+    companion object {
+        private const val ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
+        private const val ACTION_BLE_STATUS = "com.astralimit.dogfit.BLE_STATUS"
+        private const val EXTRA_CONNECTED = "connected"
+    }
+
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            intent?.getStringExtra("data")?.let { parsear(it) }
+            if (intent == null) return
+            when (intent.action) {
+                ACTION_BLE_STATUS -> {
+                    viewModel.updateBleConnection(intent.getBooleanExtra(EXTRA_CONNECTED, false))
+                }
+                ACTION_NEW_DATA -> {
+                    if (intent.hasExtra("activity_label")) {
+                        parseFirmwarePayload(intent)
+                    } else {
+                        intent.getStringExtra("data")?.let { parsear(it) }
+                    }
+                }
+            }
         }
     }
 
@@ -97,13 +115,15 @@ class MainActivity : ComponentActivity() {
     private fun parsear(jsonString: String) {
         try {
             val json = JSONObject(jsonString)
+            val activity = json.optInt("act", viewModel.getActivityValue() ?: 0)
             val steps = json.optInt("stp", 0)
-            val battery = json.optInt("bat", 0)
-            val activity = json.optInt("act", 0)
 
             viewModel.updateActivity(activity)
-            viewModel.updateBattery(battery)
             viewModel.updateStepsFromBle(steps)
+
+            if (json.has("bat")) {
+                viewModel.updateBattery(json.optInt("bat", viewModel.getBatteryValue() ?: 0))
+            }
 
             if (json.has("lat") && json.has("lng")) {
                 val lat = json.getDouble("lat")
@@ -115,6 +135,14 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("MainActivity", "Error parsing BLE data", e)
         }
+    }
+
+    private fun parseFirmwarePayload(intent: Intent) {
+        val activity = intent.getIntExtra("activity_label", viewModel.getActivityValue() ?: 0)
+        val stepsTotal = intent.getIntExtra("steps_total", 0)
+
+        viewModel.updateActivity(activity)
+        viewModel.updateStepsFromBle(stepsTotal)
     }
 
     private fun checkPermissions(): Boolean {
@@ -146,10 +174,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dataReceiver, IntentFilter("com.astralimit.dogfit.NEW_DATA"), RECEIVER_NOT_EXPORTED)
+            registerReceiver(dataReceiver, IntentFilter().apply {
+                addAction(ACTION_NEW_DATA)
+                addAction(ACTION_BLE_STATUS)
+            }, RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(dataReceiver, IntentFilter("com.astralimit.dogfit.NEW_DATA"))
+            registerReceiver(dataReceiver, IntentFilter().apply {
+                addAction(ACTION_NEW_DATA)
+                addAction(ACTION_BLE_STATUS)
+            })
         }
     }
 
@@ -175,6 +209,7 @@ fun MainScreen(
     val batteryValue by viewModel.batteryValue.collectAsState()
     val activityValue by viewModel.activityValue.collectAsState()
     val alerts by viewModel.alerts.observeAsState()
+    val bleConnected by viewModel.bleConnected.collectAsState()
 
     val targetSteps = profile?.targetActiveMinutes ?: 5000
     val currentSteps = dailyStats?.totalActiveMinutes ?: 0
@@ -292,12 +327,16 @@ fun MainScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Speed,
                     label = "Estado",
-                    value = when (activityValue) {
-                        0 -> "Reposo"
-                        1 -> "Caminando"
-                        2 -> "Corriendo"
-                        3 -> "Jugando"
-                        else -> "Desconectado"
+                    value = if (!bleConnected) {
+                        "Desconectado"
+                    } else {
+                        when (activityValue) {
+                            0 -> "Reposo"
+                            1 -> "Caminando"
+                            2 -> "Corriendo"
+                            3 -> "Jugando"
+                            else -> "Conectado"
+                        }
                     },
                     color = MaterialTheme.colorScheme.secondaryContainer
                 )
