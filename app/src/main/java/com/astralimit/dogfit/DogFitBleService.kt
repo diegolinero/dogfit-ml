@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.util.*
 
+
 class DogFitBleService : Service() {
     private val TAG = "DogFitBleService"
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -61,9 +62,11 @@ class DogFitBleService : Service() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
+                sendBleStatusBroadcast(true)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. Reintentando...")
+                sendBleStatusBroadcast(false)
                 gatt.close()
                 Handler(Looper.getMainLooper()).postDelayed({ startScanning() }, 5000)
             }
@@ -84,6 +87,13 @@ class DogFitBleService : Service() {
             enableNotifications(gatt, service.getCharacteristic(RESULT_CHAR_UUID))
         }
 
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (descriptor.characteristic?.uuid == RESULT_CHAR_UUID) {
+                Log.i(TAG, "CCCD write status=$status para RESULT_CHAR_UUID")
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid != RESULT_CHAR_UUID) return
             dispatchFirmwareBatch(characteristic.value ?: return)

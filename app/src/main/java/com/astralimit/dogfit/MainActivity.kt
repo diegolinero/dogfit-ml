@@ -161,10 +161,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dataReceiver, IntentFilter("com.astralimit.dogfit.NEW_DATA"), RECEIVER_NOT_EXPORTED)
+            registerReceiver(dataReceiver, IntentFilter().apply {
+                addAction(DogFitBleService.ACTION_NEW_DATA)
+                addAction(DogFitBleService.ACTION_BLE_STATUS)
+            }, RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(dataReceiver, IntentFilter("com.astralimit.dogfit.NEW_DATA"))
+            registerReceiver(dataReceiver, IntentFilter().apply {
+                addAction(DogFitBleService.ACTION_NEW_DATA)
+                addAction(DogFitBleService.ACTION_BLE_STATUS)
+            })
         }
     }
 
@@ -190,6 +196,7 @@ fun MainScreen(
     val batteryValue by viewModel.batteryValue.collectAsState()
     val activityValue by viewModel.activityValue.collectAsState()
     val alerts by viewModel.alerts.observeAsState()
+    val bleConnected by viewModel.bleConnected.collectAsState()
 
     val targetSteps = profile?.targetActiveMinutes ?: 5000
     val currentSteps = dailyStats?.totalActiveMinutes ?: 0
@@ -307,12 +314,16 @@ fun MainScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Speed,
                     label = "Estado",
-                    value = when (activityValue) {
-                        0 -> "Reposo"
-                        1 -> "Caminando"
-                        2 -> "Corriendo"
-                        3 -> "Jugando"
-                        else -> "Desconectado"
+                    value = if (!bleConnected) {
+                        "Desconectado"
+                    } else {
+                        when (activityValue) {
+                            0 -> "Reposo"
+                            1 -> "Caminando"
+                            2 -> "Corriendo"
+                            3 -> "Jugando"
+                            else -> "Conectado"
+                        }
                     },
                     color = MaterialTheme.colorScheme.secondaryContainer
                 )
