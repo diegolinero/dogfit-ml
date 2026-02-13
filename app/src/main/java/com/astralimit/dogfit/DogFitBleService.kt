@@ -23,6 +23,7 @@ class DogFitBleService : Service() {
 
     private var estimatedStepsTotal = 0
 
+    private var estimatedStepsTotal = 0
     override fun onCreate() {
         super.onCreate()
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
