@@ -144,7 +144,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
 
             when (selectedPeriod) {
                 "Semana" -> {
-                    val weeklyStats = viewModel.getWeeklyStats()
+                    val weeklyStats by viewModel.weeklyStats.observeAsState(WeeklySummary())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
@@ -159,7 +159,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
                     }
                 }
                 "Mes" -> {
-                    val monthlyStats = viewModel.getMonthlyStats()
+                    val monthlyStats by viewModel.monthlyStats.observeAsState(MonthlySummary())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)

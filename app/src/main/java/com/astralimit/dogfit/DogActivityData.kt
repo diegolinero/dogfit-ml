@@ -11,10 +11,14 @@ data class DogActivityData(
     val timestamp: Long = System.currentTimeMillis(),
     val activityType: Int = 0, // 0=reposo, 1=caminata, 2=carrera, 3=juego
     val intensity: Float = 0f, // 0.0 a 1.0
+    val steps: Int = 0,
+    val estimatedDistance: Float = 0f,
     val durationMinutes: Int = 0,
     val calories: Float = 0f,
     val heartRate: Int? = null,
-    val temperature: Float? = null // temperatura ambiente
+    val temperature: Float? = null, // temperatura ambiente
+    val date: String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        .format(java.util.Date(timestamp))
 ) {
     fun getActivityTypeString(): String {
         return when(activityType) {
