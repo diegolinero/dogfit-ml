@@ -45,17 +45,10 @@ class MainActivity : ComponentActivity() {
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
-            when (intent.action) {
-                DogFitBleActions.ACTION_BLE_STATUS -> {
-                    viewModel.updateBleConnection(intent.getBooleanExtra(DogFitBleActions.EXTRA_CONNECTED, false))
-                }
-                DogFitBleActions.ACTION_NEW_DATA -> {
-                    if (intent.hasExtra("activity_label")) {
-                        parseFirmwarePayload(intent)
-                    } else {
-                        intent.getStringExtra("data")?.let { parsear(it) }
-                    }
-                }
+            if (intent.hasExtra("activity_label")) {
+                parseFirmwarePayload(intent)
+            } else {
+                intent.getStringExtra("data")?.let { parsear(it) }
             }
         }
     }
@@ -169,14 +162,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(DogFitBleActions.ACTION_NEW_DATA)
-                addAction(DogFitBleActions.ACTION_BLE_STATUS)
+                addAction(DogFitBleService.ACTION_NEW_DATA)
+                addAction(DogFitBleService.ACTION_BLE_STATUS)
             }, RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(DogFitBleActions.ACTION_NEW_DATA)
-                addAction(DogFitBleActions.ACTION_BLE_STATUS)
+                addAction(DogFitBleService.ACTION_NEW_DATA)
+                addAction(DogFitBleService.ACTION_BLE_STATUS)
             })
         }
     }
