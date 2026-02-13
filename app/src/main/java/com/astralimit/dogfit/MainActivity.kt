@@ -44,7 +44,12 @@ class MainActivity : ComponentActivity() {
 
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            intent?.getStringExtra("data")?.let { parsear(it) }
+            if (intent == null) return
+            if (intent.hasExtra("activity_label")) {
+                parseFirmwarePayload(intent)
+            } else {
+                intent.getStringExtra("data")?.let { parsear(it) }
+            }
         }
     }
 
@@ -97,13 +102,15 @@ class MainActivity : ComponentActivity() {
     private fun parsear(jsonString: String) {
         try {
             val json = JSONObject(jsonString)
+            val activity = json.optInt("act", viewModel.getActivityValue() ?: 0)
             val steps = json.optInt("stp", 0)
-            val battery = json.optInt("bat", 0)
-            val activity = json.optInt("act", 0)
 
             viewModel.updateActivity(activity)
-            viewModel.updateBattery(battery)
             viewModel.updateStepsFromBle(steps)
+
+            if (json.has("bat")) {
+                viewModel.updateBattery(json.optInt("bat", viewModel.getBatteryValue() ?: 0))
+            }
 
             if (json.has("lat") && json.has("lng")) {
                 val lat = json.getDouble("lat")
@@ -115,6 +122,14 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("MainActivity", "Error parsing BLE data", e)
         }
+    }
+
+    private fun parseFirmwarePayload(intent: Intent) {
+        val activity = intent.getIntExtra("activity_label", viewModel.getActivityValue() ?: 0)
+        val stepsTotal = intent.getIntExtra("steps_total", 0)
+
+        viewModel.updateActivity(activity)
+        viewModel.updateStepsFromBle(stepsTotal)
     }
 
     private fun checkPermissions(): Boolean {
