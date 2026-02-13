@@ -42,6 +42,12 @@ class MainActivity : ComponentActivity() {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
     }
 
+    companion object {
+        private const val ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
+        private const val ACTION_BLE_STATUS = "com.astralimit.dogfit.BLE_STATUS"
+        private const val EXTRA_CONNECTED = "connected"
+    }
+
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
