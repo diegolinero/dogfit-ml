@@ -22,6 +22,8 @@ class DogFitBleService : Service() {
     private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var estimatedStepsTotal = 0
+
+    private var estimatedStepsTotal = 0
     override fun onCreate() {
         super.onCreate()
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -61,15 +63,11 @@ class DogFitBleService : Service() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
-                sendBroadcast(Intent("com.astralimit.dogfit.BLE_STATUS").apply {
-                    putExtra("connected", true)
-                })
+                sendBleStatusBroadcast(true)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. Reintentando...")
-                sendBroadcast(Intent("com.astralimit.dogfit.BLE_STATUS").apply {
-                    putExtra("connected", false)
-                })
+                sendBleStatusBroadcast(false)
                 gatt.close()
                 Handler(Looper.getMainLooper()).postDelayed({ startScanning() }, 5000)
             }
@@ -100,15 +98,6 @@ class DogFitBleService : Service() {
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid != RESULT_CHAR_UUID) return
             dispatchFirmwareBatch(characteristic.value ?: return)
-        }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            if (characteristic.uuid != RESULT_CHAR_UUID) return
-            dispatchFirmwareBatch(value)
         }
     }
 
@@ -183,6 +172,7 @@ class DogFitBleService : Service() {
         val b3 = (bytes[offset + 3].toLong() and 0xFF) shl 24
         return b0 or b1 or b2 or b3
     }
+
     private fun estimateStepsIncrement(label: Int, confidence: Int): Int {
         val base = when (label) {
             0 -> 0
