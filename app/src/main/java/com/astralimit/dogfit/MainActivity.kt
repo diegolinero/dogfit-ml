@@ -176,8 +176,8 @@ fun MainScreen(
     val activityValue by viewModel.activityValue.collectAsState()
     val alerts by viewModel.alerts.observeAsState()
 
-    val targetSteps = profile?.targetDailySteps ?: 5000
-    val currentSteps = dailyStats?.totalSteps ?: 0
+    val targetSteps = profile?.targetActiveMinutes ?: 5000
+    val currentSteps = dailyStats?.totalActiveMinutes ?: 0
     val progress = (currentSteps.toFloat() / targetSteps).coerceIn(0f, 1f)
 
     Scaffold(
@@ -261,7 +261,7 @@ fun MainScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "PASOS",
+                                text = "MIN",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -277,7 +277,7 @@ fun MainScreen(
                     )
 
                     Text(
-                        text = "Meta: $targetSteps pasos",
+                        text = "Meta: $targetSteps min",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
