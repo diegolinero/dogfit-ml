@@ -38,6 +38,12 @@ import androidx.compose.runtime.livedata.observeAsState
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
+        private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
+        private const val BLE_EXTRA_CONNECTED = "connected"
+    }
+
     private val viewModel: DogFitViewModel by viewModels {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
     }
@@ -51,10 +57,17 @@ class MainActivity : ComponentActivity() {
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
-            if (intent.hasExtra("activity_label")) {
-                parseFirmwarePayload(intent)
-            } else {
-                intent.getStringExtra("data")?.let { parsear(it) }
+            when (intent.action) {
+                BLE_ACTION_STATUS -> {
+                    viewModel.updateBleConnection(intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false))
+                }
+                BLE_ACTION_NEW_DATA -> {
+                    if (intent.hasExtra("activity_label")) {
+                        parseFirmwarePayload(intent)
+                    } else {
+                        intent.getStringExtra("data")?.let { parsear(it) }
+                    }
+                }
             }
         }
     }
@@ -168,14 +181,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(DogFitBleService.ACTION_NEW_DATA)
-                addAction(DogFitBleService.ACTION_BLE_STATUS)
+                addAction(BLE_ACTION_NEW_DATA)
+                addAction(BLE_ACTION_STATUS)
             }, RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(DogFitBleService.ACTION_NEW_DATA)
-                addAction(DogFitBleService.ACTION_BLE_STATUS)
+                addAction(BLE_ACTION_NEW_DATA)
+                addAction(BLE_ACTION_STATUS)
             })
         }
     }
