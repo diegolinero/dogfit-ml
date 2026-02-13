@@ -1,29 +1,5 @@
 package com.astralimit.dogfit
 
-import java.util.Date
-
-data class Vaccination(
-    val id: Long = System.currentTimeMillis(),
-    val name: String,
-    val applicationDate: Date,
-    val nextDueDate: Date,
-    val veterinarianName: String = "",
-    val clinic: String = "",
-    val batchNumber: String = "",
-    val notes: String = ""
-)
-
-data class Deworming(
-    val id: Long = System.currentTimeMillis(),
-    val productName: String,
-    val applicationDate: Date,
-    val nextDueDate: Date,
-    val dosage: String = "",
-    val weight: Float = 0f,
-    val veterinarianName: String = "",
-    val notes: String = ""
-)
-
 data class GpsLocation(
     val id: Long = System.currentTimeMillis(),
     val latitude: Double,
@@ -41,28 +17,18 @@ data class RouteDay(
     val durationMinutes: Int
 )
 
-data class PetMedicalRecord(
-    val vaccinations: List<Vaccination> = emptyList(),
-    val dewormings: List<Deworming> = emptyList(),
-    val upcomingReminders: List<MedicalReminder> = emptyList()
-)
+typealias VaccinationRecord = com.astralimit.dogfit.model.VaccinationRecord
+typealias Vaccination = com.astralimit.dogfit.model.VaccinationRecord
+typealias Deworming = com.astralimit.dogfit.model.Deworming
 
-data class MedicalReminder(
-    val id: Long = System.currentTimeMillis(),
-    val type: ReminderType,
-    val title: String,
-    val description: String,
-    val dueDate: Date,
-    val isWeekWarning: Boolean = false,
-    val isDayWarning: Boolean = false
-)
+typealias PetMedicalRecordModel = com.astralimit.dogfit.model.PetMedicalRecordModel
+typealias PetMedicalRecord = com.astralimit.dogfit.model.PetMedicalRecordModel
 
-enum class ReminderType {
-    VACCINATION,
-    DEWORMING
-}
+typealias MedicalReminderModel = com.astralimit.dogfit.model.MedicalReminderModel
+typealias MedicalReminder = com.astralimit.dogfit.model.MedicalReminderModel
 
-enum class PetType {
-    DOG,
-    CAT
-}
+typealias ReminderKind = com.astralimit.dogfit.model.ReminderKind
+typealias ReminderType = com.astralimit.dogfit.model.ReminderKind
+
+typealias PetKind = com.astralimit.dogfit.model.PetKind
+typealias PetType = com.astralimit.dogfit.model.PetKind

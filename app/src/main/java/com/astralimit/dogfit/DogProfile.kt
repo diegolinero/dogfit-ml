@@ -11,14 +11,14 @@ data class DogProfile(
     val birthDate: Date? = Calendar.getInstance().apply { add(Calendar.YEAR, -3) }.time,
     val age: Int = 3,
     val weight: Float = 15f,
-    val weightHistory: List<WeightRecord> = listOf(WeightRecord(System.currentTimeMillis(), 15f)),
+    val weightHistory: List<WeightEntry> = listOf(WeightEntry(System.currentTimeMillis(), 15f)),
     val height: Float = 50f,
     val dailyCalories: Int = 800,
     val imageUrl: String = "",
     val color: String = "",
     val microchipNumber: String = "",
     val medicalRecord: PetMedicalRecord = PetMedicalRecord(),
-    val vetVisits: List<VetVisit> = emptyList(),
+    val vetVisits: List<VetVisitRecord> = emptyList(),
     val targetActiveMinutes: Int = 60,
     val targetDailySteps: Int = 5000,
     val activitySensitivity: Float = 1.0f,
@@ -31,16 +31,8 @@ data class DogProfile(
     val calibrationRunFeatures: CalibrationFeatures = CalibrationFeatures()
 )
 
-data class VetVisit(
-    val id: Long = System.currentTimeMillis(),
-    val date: Date = Date(),
-    val reason: String,
-    val clinicName: String = "",
-    val prescriptionImageUrl: String = "",
-    val notes: String = ""
-)
+typealias VetVisitRecord = com.astralimit.dogfit.model.VetVisitRecord
+typealias VetVisit = com.astralimit.dogfit.model.VetVisitRecord
 
-data class WeightRecord(
-    val timestamp: Long,
-    val weight: Float
-)
+typealias WeightEntry = com.astralimit.dogfit.model.WeightEntry
+typealias WeightRecord = com.astralimit.dogfit.model.WeightEntry
