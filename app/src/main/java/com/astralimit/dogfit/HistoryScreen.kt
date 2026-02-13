@@ -597,5 +597,4 @@ fun ActivityHistoryItem(summary: DogActivityData) {
                 }
             }
         }
-    }
 }
