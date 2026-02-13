@@ -215,7 +215,7 @@ fun HistoryContent(
                 }
 
                 items(activities) { activity ->
-                    DailySummaryItem(activity)
+                    ActivityHistoryItem(activity)
                 }
             }
         }
@@ -515,7 +515,7 @@ fun DateHeader(dateStr: String) {
 }
 
 @Composable
-fun DailySummaryItem(summary: DailySummary) {
+fun ActivityHistoryItem(summary: DogActivityData) {
     var expanded by remember { mutableStateOf(false) }
     val labels = listOf("Reposo", "Caminando", "Corriendo", "Jugando")
     val colors = listOf(Color.Gray, Color(0xFF4CAF50), Color(0xFFFFC107), Color(0xFFFF5722))
@@ -555,7 +555,7 @@ fun DailySummaryItem(summary: DailySummary) {
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "${summary.activeMinutes} min",
+                        text = "${summary.durationMinutes} min",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -567,11 +567,13 @@ fun DailySummaryItem(summary: DailySummary) {
                 }
             }
 
-            if (expanded && summary.activityTimes.isNotEmpty()) {
+            if (expanded) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                summary.activityTimes.entries.sortedBy { it.key }.forEach { (act, time) ->
-                    if (time > 0) {
+                val activitySeconds = summary.durationMinutes * 60L
+                val act = summary.activityType
+                val time = activitySeconds
+                if (time > 0) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -595,5 +597,4 @@ fun DailySummaryItem(summary: DailySummary) {
                 }
             }
         }
-    }
 }
