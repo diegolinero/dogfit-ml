@@ -8,17 +8,20 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 import java.util.*
+
 
 class DogFitBleService : Service() {
     private val TAG = "DogFitBleService"
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
 
-    private val SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
-    private val ACTIVITY_CHAR_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
-    private val BATTERY_CHAR_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26aa")
+    private val SERVICE_UUID = UUID.fromString("0000ABCD-0000-1000-8000-00805F9B34FB")
+    private val RESULT_CHAR_UUID = UUID.fromString("0000ABCF-0000-1000-8000-00805F9B34FB")
+    private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+    private var estimatedStepsTotal = 0
     override fun onCreate() {
         super.onCreate()
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -47,7 +50,8 @@ class DogFitBleService : Service() {
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            Log.d(TAG, "Dispositivo encontrado!")
+            val deviceName = result.device.name ?: result.scanRecord?.deviceName ?: "N/A"
+            Log.d(TAG, "Dispositivo encontrado: $deviceName")
             bluetoothAdapter?.bluetoothLeScanner?.stopScan(this)
             bluetoothGatt = result.device.connectGatt(this@DogFitBleService, false, gattCallback)
         }
@@ -57,9 +61,15 @@ class DogFitBleService : Service() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
+                sendBroadcast(Intent(DogFitBleActions.ACTION_BLE_STATUS).apply {
+                    putExtra(DogFitBleActions.EXTRA_CONNECTED, true)
+                })
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. Reintentando...")
+                sendBroadcast(Intent(DogFitBleActions.ACTION_BLE_STATUS).apply {
+                    putExtra(DogFitBleActions.EXTRA_CONNECTED, false)
+                })
                 gatt.close()
                 Handler(Looper.getMainLooper()).postDelayed({ startScanning() }, 5000)
             }
@@ -77,15 +87,28 @@ class DogFitBleService : Service() {
                 Log.e(TAG, "Servicio BLE no encontrado")
                 return
             }
-            enableNotifications(gatt, service.getCharacteristic(ACTIVITY_CHAR_UUID))
-            enableNotifications(gatt, service.getCharacteristic(BATTERY_CHAR_UUID))
+            enableNotifications(gatt, service.getCharacteristic(RESULT_CHAR_UUID))
         }
 
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (descriptor.characteristic?.uuid == RESULT_CHAR_UUID) {
+                Log.i(TAG, "CCCD write status=$status para RESULT_CHAR_UUID")
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            val data = characteristic.getStringValue(0)
-            val intent = Intent("com.astralimit.dogfit.NEW_DATA")
-            intent.putExtra("data", data)
-            sendBroadcast(intent)
+            if (characteristic.uuid != RESULT_CHAR_UUID) return
+            dispatchFirmwareBatch(characteristic.value ?: return)
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            if (characteristic.uuid != RESULT_CHAR_UUID) return
+            dispatchFirmwareBatch(value)
         }
     }
 
@@ -94,7 +117,7 @@ class DogFitBleService : Service() {
             Log.e(TAG, "Característica BLE no encontrada")
             return
         }
-        val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+        val descriptor = characteristic.getDescriptor(CLIENT_CONFIG_UUID)
         gatt.setCharacteristicNotification(characteristic, true)
         if (descriptor != null) {
             descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -112,4 +135,63 @@ class DogFitBleService : Service() {
     }
 
     override fun onBind(intent: Intent?) = null
+
+    private fun dispatchFirmwareBatch(payload: ByteArray) {
+        if (payload.isEmpty() || payload.size % 8 != 0) {
+            Log.w(TAG, "Payload inválido recibido (${payload.size} bytes)")
+            return
+        }
+
+        for (offset in payload.indices step 8) {
+            val millis = readUInt32LE(payload, offset)
+            val label = payload[offset + 4].toInt() and 0xFF
+            val confidence = payload[offset + 5].toInt() and 0xFF
+            val sequence = readUInt16LE(payload, offset + 6)
+
+            val estimatedIncrement = estimateStepsIncrement(label, confidence)
+            estimatedStepsTotal += estimatedIncrement
+
+            val intent = Intent(DogFitBleActions.ACTION_NEW_DATA).apply {
+                putExtra("activity_label", label)
+                putExtra("confidence", confidence)
+                putExtra("sequence", sequence)
+                putExtra("sensor_time_ms", millis)
+                putExtra("steps_total", estimatedStepsTotal)
+
+                // Compatibilidad con parsing legado en JSON
+                putExtra("data", JSONObject().apply {
+                    put("act", label)
+                    put("stp", estimatedStepsTotal)
+                    put("conf", confidence)
+                    put("seq", sequence)
+                    put("t_ms", millis)
+                }.toString())
+            }
+            sendBroadcast(intent)
+        }
+    }
+
+    private fun readUInt16LE(bytes: ByteArray, offset: Int): Int {
+        return (bytes[offset].toInt() and 0xFF) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+    }
+
+    private fun readUInt32LE(bytes: ByteArray, offset: Int): Long {
+        val b0 = bytes[offset].toLong() and 0xFF
+        val b1 = (bytes[offset + 1].toLong() and 0xFF) shl 8
+        val b2 = (bytes[offset + 2].toLong() and 0xFF) shl 16
+        val b3 = (bytes[offset + 3].toLong() and 0xFF) shl 24
+        return b0 or b1 or b2 or b3
+    }
+    private fun estimateStepsIncrement(label: Int, confidence: Int): Int {
+        val base = when (label) {
+            0 -> 0
+            1 -> 4
+            2 -> 8
+            3 -> 6
+            else -> 1
+        }
+        val scaled = (base * (confidence / 100f)).toInt()
+        return scaled.coerceAtLeast(if (base == 0) 0 else 1)
+    }
 }
