@@ -31,20 +31,8 @@ data class DogProfile(
     val calibrationRunFeatures: CalibrationFeatures = CalibrationFeatures()
 )
 
-data class VetVisitRecord(
-    val id: Long = System.currentTimeMillis(),
-    val date: Date = Date(),
-    val reason: String,
-    val clinicName: String = "",
-    val prescriptionImageUrl: String = "",
-    val notes: String = ""
-)
+typealias VetVisitRecord = com.astralimit.dogfit.model.VetVisitRecord
+typealias VetVisit = com.astralimit.dogfit.model.VetVisitRecord
 
-data class WeightEntry(
-    val timestamp: Long,
-    val weight: Float
-)
-
-
-typealias VetVisit = VetVisitRecord
-typealias WeightRecord = WeightEntry
+typealias WeightEntry = com.astralimit.dogfit.model.WeightEntry
+typealias WeightRecord = com.astralimit.dogfit.model.WeightEntry
