@@ -45,17 +45,10 @@ class MainActivity : ComponentActivity() {
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
-            when (intent.action) {
-                DogFitBleService.ACTION_BLE_STATUS -> {
-                    viewModel.updateBleConnection(intent.getBooleanExtra(DogFitBleService.EXTRA_CONNECTED, false))
-                }
-                DogFitBleService.ACTION_NEW_DATA -> {
-                    if (intent.hasExtra("activity_label")) {
-                        parseFirmwarePayload(intent)
-                    } else {
-                        intent.getStringExtra("data")?.let { parsear(it) }
-                    }
-                }
+            if (intent.hasExtra("activity_label")) {
+                parseFirmwarePayload(intent)
+            } else {
+                intent.getStringExtra("data")?.let { parsear(it) }
             }
         }
     }

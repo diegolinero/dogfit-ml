@@ -23,12 +23,6 @@ class DogFitBleService : Service() {
 
     private var estimatedStepsTotal = 0
 
-    companion object {
-        const val ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
-        const val ACTION_BLE_STATUS = "com.astralimit.dogfit.BLE_STATUS"
-        const val EXTRA_CONNECTED = "connected"
-    }
-
     override fun onCreate() {
         super.onCreate()
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -104,15 +98,6 @@ class DogFitBleService : Service() {
             if (characteristic.uuid != RESULT_CHAR_UUID) return
             dispatchFirmwareBatch(characteristic.value ?: return)
         }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            if (characteristic.uuid != RESULT_CHAR_UUID) return
-            dispatchFirmwareBatch(value)
-        }
     }
 
     private fun enableNotifications(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?) {
@@ -154,7 +139,7 @@ class DogFitBleService : Service() {
             val estimatedIncrement = estimateStepsIncrement(label, confidence)
             estimatedStepsTotal += estimatedIncrement
 
-            val intent = Intent(ACTION_NEW_DATA).apply {
+            val intent = Intent("com.astralimit.dogfit.NEW_DATA").apply {
                 putExtra("activity_label", label)
                 putExtra("confidence", confidence)
                 putExtra("sequence", sequence)
@@ -185,14 +170,6 @@ class DogFitBleService : Service() {
         val b2 = (bytes[offset + 2].toLong() and 0xFF) shl 16
         val b3 = (bytes[offset + 3].toLong() and 0xFF) shl 24
         return b0 or b1 or b2 or b3
-    }
-
-
-    private fun sendBleStatusBroadcast(connected: Boolean) {
-        val intent = Intent(ACTION_BLE_STATUS).apply {
-            putExtra(EXTRA_CONNECTED, connected)
-        }
-        sendBroadcast(intent)
     }
 
     private fun estimateStepsIncrement(label: Int, confidence: Int): Int {
