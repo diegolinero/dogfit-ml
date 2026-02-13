@@ -29,6 +29,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val _batteryValue = MutableStateFlow<Int?>(null)
     val batteryValue: StateFlow<Int?> = _batteryValue.asStateFlow()
 
+    private val _bleConnected = MutableStateFlow(false)
+    val bleConnected: StateFlow<Boolean> = _bleConnected.asStateFlow()
+
     // LiveData para compatibilidad
     private val _activityLiveData = MutableLiveData<Int?>()
     val activityLiveData: LiveData<Int?> = _activityLiveData
@@ -140,7 +143,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     init {
-        loadMockData()
+        updateAllStats()
         generateInitialAlerts()
     }
 
@@ -184,6 +187,17 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             Log.d("DogFitViewModel", "✅ Batería actualizada: $batteryValue%")
+        }
+    }
+
+
+    fun updateBleConnection(connected: Boolean) {
+        viewModelScope.launch {
+            _bleConnected.value = connected
+            if (!connected) {
+                _activityValue.value = null
+            }
+            Log.d("DogFitViewModel", "BLE conectado: $connected")
         }
     }
 

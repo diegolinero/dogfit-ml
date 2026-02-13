@@ -1,6 +1,6 @@
 package com.astralimit.dogfit
 
-data class WeeklySummary(
+data class WeeklySummaryModel(
     val weekNumber: Int = 1,
     val weekRange: String = "",
     val totalSteps: Int = 0,
@@ -15,3 +15,6 @@ data class WeeklySummary(
     val bestDay: DailySummary? = null,
     val consistencyScore: Float = 0f
 )
+
+
+typealias WeeklySummary = WeeklySummaryModel

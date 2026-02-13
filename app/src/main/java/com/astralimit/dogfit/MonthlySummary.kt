@@ -1,6 +1,6 @@
 package com.astralimit.dogfit
 
-data class MonthlySummary(
+data class MonthlySummaryModel(
     val month: String = "",
     val year: Int = 2026,
     val totalSteps: Int = 0,
@@ -14,3 +14,6 @@ data class MonthlySummary(
     val comparisonWithLastMonth: Float = 0f,
     val monthlyGoalAchieved: Boolean = false
 )
+
+
+typealias MonthlySummary = MonthlySummaryModel
