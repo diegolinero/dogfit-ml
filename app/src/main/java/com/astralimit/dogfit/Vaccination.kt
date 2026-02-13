@@ -2,7 +2,7 @@ package com.astralimit.dogfit
 
 import java.util.Date
 
-data class Vaccination(
+data class VaccinationRecord(
     val id: Long = System.currentTimeMillis(),
     val name: String,
     val applicationDate: Date,
@@ -41,15 +41,15 @@ data class RouteDay(
     val durationMinutes: Int
 )
 
-data class PetMedicalRecord(
-    val vaccinations: List<Vaccination> = emptyList(),
+data class PetMedicalRecordModel(
+    val vaccinations: List<VaccinationRecord> = emptyList(),
     val dewormings: List<Deworming> = emptyList(),
-    val upcomingReminders: List<MedicalReminder> = emptyList()
+    val upcomingReminders: List<MedicalReminderModel> = emptyList()
 )
 
-data class MedicalReminder(
+data class MedicalReminderModel(
     val id: Long = System.currentTimeMillis(),
-    val type: ReminderType,
+    val type: ReminderKind,
     val title: String,
     val description: String,
     val dueDate: Date,
@@ -57,12 +57,19 @@ data class MedicalReminder(
     val isDayWarning: Boolean = false
 )
 
-enum class ReminderType {
+enum class ReminderKind {
     VACCINATION,
     DEWORMING
 }
 
-enum class PetType {
+enum class PetKind {
     DOG,
     CAT
 }
+
+
+typealias Vaccination = VaccinationRecord
+typealias PetMedicalRecord = PetMedicalRecordModel
+typealias MedicalReminder = MedicalReminderModel
+typealias ReminderType = ReminderKind
+typealias PetType = PetKind
