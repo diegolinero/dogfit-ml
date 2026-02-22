@@ -100,7 +100,7 @@ fun PetProfileContent(
                 0 -> ProfileTab(profile, viewModel)
                 1 -> WeightHistoryTab(profile, viewModel)
                 2 -> VaccinationsTab(profile?.medicalRecord?.vaccinations ?: emptyList(), viewModel)
-                3 -> DewormingTab(profile?.medicalRecord?.dewormings ?: emptyList(), viewModel)
+                3 -> DewormingEntryTab(profile?.medicalRecord?.dewormings ?: emptyList(), viewModel)
                 4 -> VetVisitsTab(profile?.vetVisits ?: emptyList(), viewModel)
             }
         }
@@ -1050,9 +1050,9 @@ fun VaccinationCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DewormingTab(dewormings: List<Deworming>, viewModel: DogFitViewModel) {
+fun DewormingEntryTab(dewormings: List<DewormingEntry>, viewModel: DogFitViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var dewormingToEdit by remember { mutableStateOf<Deworming?>(null) }
+    var dewormingToEdit by remember { mutableStateOf<DewormingEntry?>(null) }
     val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1071,7 +1071,7 @@ fun DewormingTab(dewormings: List<Deworming>, viewModel: DogFitViewModel) {
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 items(dewormings) { deworming ->
-                    DewormingCard(
+                    DewormingEntryCard(
                         deworming = deworming,
                         dateFormat = dateFormat,
                         onEdit = { dewormingToEdit = deworming }
@@ -1094,21 +1094,21 @@ fun DewormingTab(dewormings: List<Deworming>, viewModel: DogFitViewModel) {
     }
 
     if (showAddDialog) {
-        AddDewormingDialog(
+        AddDewormingEntryDialog(
             onDismiss = { showAddDialog = false },
             onSave = { d ->
-                viewModel.addDeworming(d)
+                viewModel.addDewormingEntry(d)
                 showAddDialog = false
             }
         )
     }
 
     if (dewormingToEdit != null) {
-        AddDewormingDialog(
+        AddDewormingEntryDialog(
             deworming = dewormingToEdit,
             onDismiss = { dewormingToEdit = null },
             onSave = { d ->
-                viewModel.updateDeworming(d)
+                viewModel.updateDewormingEntry(d)
                 dewormingToEdit = null
             }
         )
@@ -1117,10 +1117,10 @@ fun DewormingTab(dewormings: List<Deworming>, viewModel: DogFitViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddDewormingDialog(
-    deworming: Deworming? = null,
+fun AddDewormingEntryDialog(
+    deworming: DewormingEntry? = null,
     onDismiss: () -> Unit,
-    onSave: (Deworming) -> Unit
+    onSave: (DewormingEntry) -> Unit
 ) {
     var productName by remember { mutableStateOf(deworming?.productName ?: "") }
 
@@ -1263,7 +1263,7 @@ fun AddDewormingDialog(
                             nextDay.toIntOrNull() ?: 1
                         )
 
-                        val newDeworming = Deworming(
+                        val newDewormingEntry = DewormingEntry(
                             id = deworming?.id ?: System.currentTimeMillis(),
                             productName = productName,
                             applicationDate = appCalendar.time,
@@ -1272,7 +1272,7 @@ fun AddDewormingDialog(
                             veterinarianName = veterinarian,
                             notes = notes
                         )
-                        onSave(newDeworming)
+                        onSave(newDewormingEntry)
                     }
                 },
                 enabled = productName.isNotBlank()
@@ -1289,8 +1289,8 @@ fun AddDewormingDialog(
 }
 
 @Composable
-fun DewormingCard(
-    deworming: Deworming,
+fun DewormingEntryCard(
+    deworming: DewormingEntry,
     dateFormat: SimpleDateFormat,
     onEdit: () -> Unit
 ) {
