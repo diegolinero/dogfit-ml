@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astralimit.dogfit.ui.theme.DogFitTheme
+import com.astralimit.dogfit.model.*
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.runtime.livedata.observeAsState

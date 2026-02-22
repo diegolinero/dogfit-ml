@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astralimit.dogfit.ui.theme.DogFitTheme
+import com.astralimit.dogfit.model.*
 import java.util.concurrent.TimeUnit
 
 class StatisticsActivity : ComponentActivity() {
@@ -144,7 +145,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
 
             when (selectedPeriod) {
                 "Semana" -> {
-                    val weeklyStats by viewModel.weeklyStats.observeAsState(WeeklySummary())
+                    val weeklyStats by viewModel.weeklyStats.observeAsState(WeeklySummaryModel())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
@@ -159,7 +160,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
                     }
                 }
                 "Mes" -> {
-                    val monthlyStats by viewModel.monthlyStats.observeAsState(MonthlySummary())
+                    val monthlyStats by viewModel.monthlyStats.observeAsState(MonthlySummaryModel())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)

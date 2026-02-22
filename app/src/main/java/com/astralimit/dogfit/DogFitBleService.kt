@@ -101,12 +101,6 @@ class DogFitBleService : Service() {
             }
         }
 
-        @Deprecated("Deprecated in Java")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid != RESULT_CHAR_UUID) return
-            dispatchFirmwareBatch(characteristic.value ?: return)
-        }
-
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,

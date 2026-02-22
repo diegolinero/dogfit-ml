@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import com.astralimit.dogfit.ui.theme.DogFitTheme
+import com.astralimit.dogfit.model.*
 import androidx.compose.runtime.livedata.observeAsState
 import java.util.concurrent.TimeUnit
 
@@ -193,7 +194,7 @@ fun DogHealthScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Tipo:", style = MaterialTheme.typography.bodyMedium)
-                        Text(if (profile?.petType == PetType.CAT) "Gato" else "Perro", fontWeight = FontWeight.Bold)
+                        Text(if (profile?.petType == PetKind.CAT) "Gato" else "Perro", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(

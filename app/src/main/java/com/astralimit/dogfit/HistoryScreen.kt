@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astralimit.dogfit.ui.theme.DogFitTheme
+import com.astralimit.dogfit.model.*
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -185,14 +186,15 @@ fun HistoryContent(
                     history?.filter { it.date == targetDate } ?: emptyList()
                 }
                 "Semana" -> {
-                    calendar.add(Calendar.DAY_OF_YEAR, -7)
-                    val weekAgoDate = dateFormat.format(calendar.time)
+                    val cal = Calendar.getInstance()
+                    cal.add(Calendar.DAY_OF_YEAR, -7)
+                    val weekAgoDate = dateFormat.format(cal.time)
                     history?.filter { it.date >= weekAgoDate } ?: emptyList()
                 }
                 else -> {
-                    calendar.time = Date()
-                    calendar.add(Calendar.DAY_OF_YEAR, -30)
-                    val monthAgoDate = dateFormat.format(calendar.time)
+                    val cal = Calendar.getInstance()
+                    cal.add(Calendar.DAY_OF_YEAR, -30)
+                    val monthAgoDate = dateFormat.format(cal.time)
                     history?.filter { it.date >= monthAgoDate } ?: emptyList()
                 }
             }
@@ -332,7 +334,7 @@ fun TodaySummaryCard(stats: DailySummary?, activityTimes: Map<Int, Long>) {
 }
 
 @Composable
-fun WeeklySummaryCard(stats: WeeklySummary?) {
+fun WeeklySummaryCard(stats: WeeklySummaryModel?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(

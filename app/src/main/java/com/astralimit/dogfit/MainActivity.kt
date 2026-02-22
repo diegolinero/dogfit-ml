@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
+import com.astralimit.dogfit.model.*
 import org.json.JSONObject
 import androidx.compose.runtime.livedata.observeAsState
 
@@ -46,12 +47,6 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: DogFitViewModel by viewModels {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
-    }
-
-    companion object {
-        private const val ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
-        private const val ACTION_BLE_STATUS = "com.astralimit.dogfit.BLE_STATUS"
-        private const val EXTRA_CONNECTED = "connected"
     }
 
     private val dataReceiver = object : BroadcastReceiver() {
@@ -522,8 +517,7 @@ fun QuickAccessCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+            horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
                     .size(48.dp)

@@ -1,3 +1,1 @@
-package com.astralimit.dogfit
-
-typealias WeeklySummary = com.astralimit.dogfit.model.WeeklySummaryModel
+// Deletion planned to resolve duplicate class errors

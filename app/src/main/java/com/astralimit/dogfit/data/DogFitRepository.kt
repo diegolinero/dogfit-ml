@@ -1,7 +1,7 @@
 package com.astralimit.dogfit.data
 
 import android.util.Log
-import com.astralimit.dogfit.*
+import com.astralimit.dogfit.model.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
@@ -63,7 +63,7 @@ class DogFitRepository(
         }
     }
 
-    val vaccinations: Flow<List<Vaccination>> = vaccinationDao.getAllVaccinations().map { list ->
+    val vaccinations: Flow<List<VaccinationRecord>> = vaccinationDao.getAllVaccinations().map { list ->
         list.map { it.toVaccination() }
     }
 
@@ -77,15 +77,15 @@ class DogFitRepository(
 
     suspend fun saveProfile(profile: DogProfile) {
         val entity = profile.toEntity()
-        Log.d("DogFitRepository", "saveProfile: ${profile.name}, vetVisits=${profile.vetVisits.size}, vetVisitsJson=${entity.vetVisitsJson}")
+        Log.d("DogFitRepository", "saveProfile: ${profile.name}, vetVisits=${profile.vetVisits.size}")
         profileDao.insertProfile(entity)
     }
 
-    suspend fun addVaccination(vaccination: Vaccination) {
+    suspend fun addVaccination(vaccination: VaccinationRecord) {
         vaccinationDao.insertVaccination(vaccination.toEntity())
     }
 
-    suspend fun updateVaccination(vaccination: Vaccination) {
+    suspend fun updateVaccination(vaccination: VaccinationRecord) {
         vaccinationDao.updateVaccination(vaccination.toEntity())
     }
 
@@ -101,7 +101,7 @@ class DogFitRepository(
         return DogProfile(
             id = id,
             name = name,
-            petType = try { PetType.valueOf(petType) } catch (e: Exception) { PetType.DOG },
+            petType = try { PetKind.valueOf(petType) } catch (e: Exception) { PetKind.DOG },
             breed = breed,
             birthDate = birthDate?.let { Date(it) },
             age = age,
@@ -113,7 +113,7 @@ class DogFitRepository(
             imageUrl = imageUrl,
             color = color,
             microchipNumber = microchipNumber,
-            medicalRecord = PetMedicalRecord(),
+            medicalRecord = PetMedicalRecordModel(),
             vetVisits = parseVetVisits(vetVisitsJson),
             activitySensitivity = activitySensitivity,
             isCalibrated = isCalibrated == 1,
@@ -154,15 +154,14 @@ class DogFitRepository(
         )
     }
 
-    private fun parseVetVisits(jsonStr: String): List<VetVisit> {
-        Log.d("DogFitRepository", "parseVetVisits input: $jsonStr")
+    private fun parseVetVisits(jsonStr: String): List<VetVisitRecord> {
         if (jsonStr.isEmpty() || jsonStr == "[]") return emptyList()
         return try {
             val json = JSONArray(jsonStr)
-            val list = mutableListOf<VetVisit>()
+            val list = mutableListOf<VetVisitRecord>()
             for (i in 0 until json.length()) {
                 val obj = json.getJSONObject(i)
-                list.add(VetVisit(
+                list.add(VetVisitRecord(
                     id = obj.getLong("id"),
                     date = Date(obj.getLong("date")),
                     reason = obj.getString("reason"),
@@ -171,15 +170,13 @@ class DogFitRepository(
                     notes = obj.optString("notes", "")
                 ))
             }
-            Log.d("DogFitRepository", "parseVetVisits result: ${list.size} visitas")
             list
         } catch (e: Exception) {
-            Log.e("DogFitRepository", "parseVetVisits error: ${e.message}")
             emptyList()
         }
     }
 
-    private fun serializeVetVisits(visits: List<VetVisit>): String {
+    private fun serializeVetVisits(visits: List<VetVisitRecord>): String {
         val jsonArray = JSONArray()
         visits.forEach { visit ->
             val obj = JSONObject()
@@ -191,19 +188,17 @@ class DogFitRepository(
             obj.put("notes", visit.notes)
             jsonArray.put(obj)
         }
-        val result = jsonArray.toString()
-        Log.d("DogFitRepository", "serializeVetVisits: ${visits.size} visitas -> $result")
-        return result
+        return jsonArray.toString()
     }
 
-    private fun parseWeightHistory(json: String): List<WeightRecord> {
+    private fun parseWeightHistory(json: String): List<WeightEntry> {
         if (json.isEmpty() || json == "[]") return emptyList()
         return try {
-            val list = mutableListOf<WeightRecord>()
+            val list = mutableListOf<WeightEntry>()
             val jsonArray = JSONArray(json)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                list.add(WeightRecord(
+                list.add(WeightEntry(
                     timestamp = obj.getLong("timestamp"),
                     weight = obj.getDouble("weight").toFloat()
                 ))
@@ -214,7 +209,7 @@ class DogFitRepository(
         }
     }
 
-    private fun serializeWeightHistory(list: List<WeightRecord>): String {
+    private fun serializeWeightHistory(list: List<WeightEntry>): String {
         val jsonArray = JSONArray()
         list.forEach { record ->
             val obj = JSONObject()
@@ -225,8 +220,8 @@ class DogFitRepository(
         return jsonArray.toString()
     }
 
-    private fun VaccinationEntity.toVaccination(): Vaccination {
-        return Vaccination(
+    private fun VaccinationEntity.toVaccination(): VaccinationRecord {
+        return VaccinationRecord(
             id = id,
             name = name,
             applicationDate = applicationDate,
@@ -238,7 +233,7 @@ class DogFitRepository(
         )
     }
 
-    private fun Vaccination.toEntity(): VaccinationEntity {
+    private fun VaccinationRecord.toEntity(): VaccinationEntity {
         return VaccinationEntity(
             id = id,
             name = name,

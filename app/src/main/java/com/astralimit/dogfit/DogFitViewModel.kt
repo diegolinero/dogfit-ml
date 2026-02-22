@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import android.util.Log
+import com.astralimit.dogfit.model.*
 import java.util.*
 
 class DogFitViewModel(application: Application) : AndroidViewModel(application) {
@@ -67,11 +68,11 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val _dailyStats = MutableLiveData<DailySummary>()
     val dailyStats: LiveData<DailySummary> = _dailyStats
 
-    private val _weeklyStats = MutableLiveData<WeeklySummary>()
-    val weeklyStats: LiveData<WeeklySummary> = _weeklyStats
+    private val _weeklyStats = MutableLiveData<WeeklySummaryModel>()
+    val weeklyStats: LiveData<WeeklySummaryModel> = _weeklyStats
 
-    private val _monthlyStats = MutableLiveData<MonthlySummary>()
-    val monthlyStats: LiveData<MonthlySummary> = _monthlyStats
+    private val _monthlyStats = MutableLiveData<MonthlySummaryModel>()
+    val monthlyStats: LiveData<MonthlySummaryModel> = _monthlyStats
 
     private val breedRecommendations = mapOf(
         "Labrador" to BreedRecommendation(
@@ -441,7 +442,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         } else 0f
 
         val totalActiveMinutes = weekData.sumOf { it.activeMinutes }
-        _weeklyStats.value = WeeklySummary(
+        _weeklyStats.value = WeeklySummaryModel(
             weekNumber = calendar.get(Calendar.WEEK_OF_YEAR),
             weekRange = "${weekData.first().date} - ${weekData.last().date}",
             totalSteps = totalSteps,
@@ -507,7 +508,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         } else 0f
 
         val totalActiveMinutes = monthData.count { it.activityType in 1..3 } * 5
-        _monthlyStats.value = MonthlySummary(
+        _monthlyStats.value = MonthlySummaryModel(
             month = SimpleDateFormat("MMMM", Locale.getDefault()).format(Date()),
             year = year,
             totalSteps = totalSteps,
@@ -773,7 +774,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun addVaccination(vaccination: Vaccination) {
+    fun addVaccination(vaccination: VaccinationRecord) {
         val currentProfile = _dogProfile.value ?: return
         val currentRecord = currentProfile.medicalRecord
         val updatedVaccinations = currentRecord.vaccinations + vaccination
@@ -789,7 +790,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         checkMedicalReminders()
     }
 
-    fun addDewormingEntry(deworming: DewormingEntry) {
+    fun addDewormingEntry(deworming: Deworming) {
         val currentProfile = _dogProfile.value ?: return
         val currentRecord = currentProfile.medicalRecord
         val updatedDewormingEntrys = currentRecord.dewormings + deworming
@@ -883,7 +884,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
 
 
-    fun getMonthlyStats(): MonthlySummary = _monthlyStats.value ?: MonthlySummary()
+    fun getMonthlyStats(): MonthlySummaryModel = _monthlyStats.value ?: MonthlySummaryModel()
 
     fun reloadActivityTimesFromDatabase() {
         updateDailyStats()
@@ -903,17 +904,17 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    fun addVetVisit(visit: VetVisit) {
+    fun addVetVisit(visit: VetVisitRecord) {
         val profile = _dogProfile.value ?: return
         _dogProfile.value = profile.copy(vetVisits = profile.vetVisits + visit)
     }
 
-    fun updateVetVisit(visit: VetVisit) {
+    fun updateVetVisit(visit: VetVisitRecord) {
         val profile = _dogProfile.value ?: return
         _dogProfile.value = profile.copy(vetVisits = profile.vetVisits.map { if (it.id == visit.id) visit else it })
     }
 
-    fun deleteVetVisit(visit: VetVisit) {
+    fun deleteVetVisit(visit: VetVisitRecord) {
         val profile = _dogProfile.value ?: return
         _dogProfile.value = profile.copy(vetVisits = profile.vetVisits.filterNot { it.id == visit.id })
     }
@@ -927,18 +928,18 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         return age.coerceAtLeast(0)
     }
 
-    fun addWeightRecord(record: WeightRecord) {
+    fun addWeightRecord(record: WeightEntry) {
         val profile = _dogProfile.value ?: return
         _dogProfile.value = profile.copy(weight = record.weight, weightHistory = profile.weightHistory + record)
     }
 
-    fun updateVaccination(vaccination: Vaccination) {
+    fun updateVaccination(vaccination: VaccinationRecord) {
         val profile = _dogProfile.value ?: return
         val updated = profile.medicalRecord.vaccinations.map { if (it.id == vaccination.id) vaccination else it }
         _dogProfile.value = profile.copy(medicalRecord = profile.medicalRecord.copy(vaccinations = updated))
     }
 
-    fun updateDewormingEntry(deworming: DewormingEntry) {
+    fun updateDewormingEntry(deworming: Deworming) {
         val profile = _dogProfile.value ?: return
         val updated = profile.medicalRecord.dewormings.map { if (it.id == deworming.id) deworming else it }
         _dogProfile.value = profile.copy(medicalRecord = profile.medicalRecord.copy(dewormings = updated))

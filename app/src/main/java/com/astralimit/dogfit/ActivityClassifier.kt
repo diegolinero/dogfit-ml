@@ -1,5 +1,7 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.ActivityFeatures
+import com.astralimit.dogfit.model.CalibrationFeatures
 import kotlin.math.sqrt
 
 /**
