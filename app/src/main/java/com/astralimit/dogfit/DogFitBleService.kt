@@ -11,13 +11,14 @@ import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.util.*
 
-
 class DogFitBleService : Service() {
+
     companion object {
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_EXTRA_CONNECTED = "connected"
     }
+
     private val TAG = "DogFitBleService"
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
@@ -27,6 +28,13 @@ class DogFitBleService : Service() {
     private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var bleEstimatedStepsTotal = 0
+
+    // ==========================
+    // RX reassembly buffer (óptimo)
+    // ==========================
+    private val rxBuffer = ByteArray(4096)
+    private var rxLen = 0
+
     override fun onCreate() {
         super.onCreate()
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -63,19 +71,35 @@ class DogFitBleService : Service() {
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
+
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
+
+                // Recomendado: mejor throughput/latencia
+                try {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                } catch (_: Throwable) {}
+
+                // Reset del buffer al reconectar
+                rxLen = 0
+
                 sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
                 })
                 gatt.discoverServices()
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. Reintentando...")
+
                 sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, false)
                 })
-                gatt.close()
+                try { gatt.close() } catch (_: Throwable) {}
+
+                // Reset buffer
+                rxLen = 0
+
                 Handler(Looper.getMainLooper()).postDelayed({ startScanning() }, 5000)
             }
         }
@@ -107,7 +131,7 @@ class DogFitBleService : Service() {
             value: ByteArray
         ) {
             if (characteristic.uuid != RESULT_CHAR_UUID) return
-            dispatchFirmwareBatch(value)
+            dispatchFirmwareChunk(value)
         }
     }
 
@@ -135,17 +159,28 @@ class DogFitBleService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
-    private fun dispatchFirmwareBatch(payload: ByteArray) {
-        if (payload.isEmpty() || payload.size % 8 != 0) {
-            Log.w(TAG, "Payload inválido recibido (${payload.size} bytes)")
+    // =========================================================
+    //  ÓPTIMO: rearmar bytes como stream + consumir frames de 8
+    // =========================================================
+    private fun dispatchFirmwareChunk(chunk: ByteArray) {
+        if (chunk.isEmpty()) return
+
+        // 1) Append al buffer
+        if (rxLen + chunk.size > rxBuffer.size) {
+            Log.w(TAG, "RX buffer overflow. Reset.")
+            rxLen = 0
             return
         }
+        System.arraycopy(chunk, 0, rxBuffer, rxLen, chunk.size)
+        rxLen += chunk.size
 
-        for (offset in payload.indices step 8) {
-            val millis = readUInt32LE(payload, offset)
-            val label = payload[offset + 4].toInt() and 0xFF
-            val confidence = payload[offset + 5].toInt() and 0xFF
-            val sequence = readUInt16LE(payload, offset + 6)
+        // 2) Consumir registros completos (8 bytes c/u)
+        var offset = 0
+        while (rxLen - offset >= 8) {
+            val millis = readUInt32LE(rxBuffer, offset)
+            val label = rxBuffer[offset + 4].toInt() and 0xFF
+            val confidence = rxBuffer[offset + 5].toInt() and 0xFF
+            val sequence = readUInt16LE(rxBuffer, offset + 6)
 
             val estimatedIncrement = estimateStepsIncrement(label, confidence)
             bleEstimatedStepsTotal += estimatedIncrement
@@ -157,7 +192,6 @@ class DogFitBleService : Service() {
                 putExtra("sensor_time_ms", millis)
                 putExtra("steps_total", bleEstimatedStepsTotal)
 
-                // Compatibilidad con parsing legado en JSON
                 putExtra("data", JSONObject().apply {
                     put("act", label)
                     put("stp", bleEstimatedStepsTotal)
@@ -167,12 +201,23 @@ class DogFitBleService : Service() {
                 }.toString())
             }
             sendBroadcast(intent)
+
+            offset += 8
+        }
+
+        // 3) Compactar sobrantes (<8)
+        if (offset > 0) {
+            val remaining = rxLen - offset
+            if (remaining > 0) {
+                System.arraycopy(rxBuffer, offset, rxBuffer, 0, remaining)
+            }
+            rxLen = remaining
         }
     }
 
     private fun readUInt16LE(bytes: ByteArray, offset: Int): Int {
         return (bytes[offset].toInt() and 0xFF) or
-            ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+                ((bytes[offset + 1].toInt() and 0xFF) shl 8)
     }
 
     private fun readUInt32LE(bytes: ByteArray, offset: Int): Long {
@@ -182,6 +227,7 @@ class DogFitBleService : Service() {
         val b3 = (bytes[offset + 3].toLong() and 0xFF) shl 24
         return b0 or b1 or b2 or b3
     }
+
     private fun estimateStepsIncrement(label: Int, confidence: Int): Int {
         val base = when (label) {
             0 -> 0
