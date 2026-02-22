@@ -1,5 +1,6 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.*
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -332,7 +333,7 @@ fun TodaySummaryCard(stats: DailySummary?, activityTimes: Map<Int, Long>) {
 }
 
 @Composable
-fun WeeklySummaryCard(stats: WeeklySummary?) {
+fun WeeklySummaryCard(stats: WeeklySummaryModel?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(

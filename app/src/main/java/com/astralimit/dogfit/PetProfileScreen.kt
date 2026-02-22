@@ -1,5 +1,6 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.*
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -109,9 +110,9 @@ fun PetProfileContent(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VetVisitsTab(visits: List<VetVisit>, viewModel: DogFitViewModel) {
+fun VetVisitsTab(visits: List<VetVisitRecord>, viewModel: DogFitViewModel) {
     var showAddVisitDialog by remember { mutableStateOf(false) }
-    var visitToEdit by remember { mutableStateOf<VetVisit?>(null) }
+    var visitToEdit by remember { mutableStateOf<VetVisitRecord?>(null) }
     val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -236,10 +237,10 @@ fun VetVisitsTab(visits: List<VetVisit>, viewModel: DogFitViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddVetVisitDialog(
-    visit: VetVisit? = null,
+    visit: VetVisitRecord? = null,
     onDismiss: () -> Unit,
-    onSave: (VetVisit) -> Unit,
-    onDelete: ((VetVisit) -> Unit)? = null
+    onSave: (VetVisitRecord) -> Unit,
+    onDelete: ((VetVisitRecord) -> Unit)? = null
 ) {
     var reason by remember { mutableStateOf(visit?.reason ?: "") }
     var clinicName by remember { mutableStateOf(visit?.clinicName ?: "") }
@@ -321,7 +322,7 @@ fun AddVetVisitDialog(
                         clinicName = clinicName,
                         notes = notes,
                         prescriptionImageUrl = prescriptionUri?.toString() ?: ""
-                    ) ?: VetVisit(
+                    ) ?: VetVisitRecord(
                         reason = reason,
                         clinicName = clinicName,
                         notes = notes,
@@ -443,7 +444,7 @@ fun ProfileTab(profile: DogProfile?, viewModel: DogFitViewModel) {
                     )
 
                     Text(
-                        text = "${profile?.breed ?: "Raza desconocida"} - ${if (profile?.petType == PetType.CAT) "Gato" else "Perro"}",
+                        text = "${profile?.breed ?: "Raza desconocida"} - ${if (profile?.petType == PetKind.CAT) "Gato" else "Perro"}",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -702,7 +703,7 @@ fun WeightHistoryTab(profile: DogProfile?, viewModel: DogFitViewModel) {
                 Button(
                     onClick = {
                         weightInput.toFloatOrNull()?.let {
-                            viewModel.addWeightRecord(WeightRecord(System.currentTimeMillis(), it))
+                            viewModel.addWeightRecord(WeightEntry(System.currentTimeMillis(), it))
                         }
                         showAddWeightDialog = false
                     }
@@ -721,9 +722,9 @@ fun WeightHistoryTab(profile: DogProfile?, viewModel: DogFitViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VaccinationsTab(vaccinations: List<Vaccination>, viewModel: DogFitViewModel) {
+fun VaccinationsTab(vaccinations: List<VaccinationRecord>, viewModel: DogFitViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var vaccinationToEdit by remember { mutableStateOf<Vaccination?>(null) }
+    var vaccinationToEdit by remember { mutableStateOf<VaccinationRecord?>(null) }
     val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -789,9 +790,9 @@ fun VaccinationsTab(vaccinations: List<Vaccination>, viewModel: DogFitViewModel)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddVaccinationDialog(
-    vaccination: Vaccination? = null,
+    vaccination: VaccinationRecord? = null,
     onDismiss: () -> Unit,
-    onSave: (Vaccination) -> Unit
+    onSave: (VaccinationRecord) -> Unit
 ) {
     var name by remember { mutableStateOf(vaccination?.name ?: "") }
 
@@ -923,7 +924,7 @@ fun AddVaccinationDialog(
                             nextDay.toIntOrNull() ?: 1
                         )
 
-                        val newVaccination = Vaccination(
+                        val newVaccination = VaccinationRecord(
                             id = vaccination?.id ?: System.currentTimeMillis(),
                             name = name,
                             applicationDate = appCalendar.time,
@@ -949,7 +950,7 @@ fun AddVaccinationDialog(
 
 @Composable
 fun VaccinationCard(
-    vaccination: Vaccination,
+    vaccination: VaccinationRecord,
     dateFormat: SimpleDateFormat,
     onEdit: () -> Unit
 ) {
@@ -1440,7 +1441,7 @@ fun EditProfileDialog(
     var weight by remember { mutableStateOf(profile?.weight?.toString() ?: "0.0") }
     var targetMinutes by remember { mutableStateOf(profile?.targetActiveMinutes?.toString() ?: "60") }
     var microchip by remember { mutableStateOf(profile?.microchipNumber ?: "") }
-    var petType by remember { mutableStateOf(profile?.petType ?: PetType.DOG) }
+    var petType by remember { mutableStateOf(profile?.petType ?: PetKind.DOG) }
     var sensitivity by remember { mutableStateOf(profile?.activitySensitivity ?: 1.0f) }
 
     // Birth date components
@@ -1472,14 +1473,14 @@ fun EditProfileDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         FilterChip(
-                            selected = petType == PetType.DOG,
-                            onClick = { petType = PetType.DOG },
+                            selected = petType == PetKind.DOG,
+                            onClick = { petType = PetKind.DOG },
                             label = { Text("Perro") },
                             leadingIcon = { Icon(Icons.Default.Pets, contentDescription = null) }
                         )
                         FilterChip(
-                            selected = petType == PetType.CAT,
-                            onClick = { petType = PetType.CAT },
+                            selected = petType == PetKind.CAT,
+                            onClick = { petType = PetKind.CAT },
                             label = { Text("Gato") },
                             leadingIcon = { Icon(Icons.Default.Pets, contentDescription = null) }
                         )

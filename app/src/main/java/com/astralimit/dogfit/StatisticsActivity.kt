@@ -1,5 +1,6 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.*
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -144,7 +145,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
 
             when (selectedPeriod) {
                 "Semana" -> {
-                    val weeklyStats by viewModel.weeklyStats.observeAsState(WeeklySummary())
+                    val weeklyStats by viewModel.weeklyStats.observeAsState(WeeklySummaryModel())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
@@ -159,7 +160,7 @@ fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
                     }
                 }
                 "Mes" -> {
-                    val monthlyStats by viewModel.monthlyStats.observeAsState(MonthlySummary())
+                    val monthlyStats by viewModel.monthlyStats.observeAsState(MonthlySummaryModel())
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)

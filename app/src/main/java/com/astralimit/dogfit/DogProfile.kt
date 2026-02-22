@@ -1,12 +1,16 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.PetKind
+import com.astralimit.dogfit.model.PetMedicalRecordModel
+import com.astralimit.dogfit.model.VetVisitRecord
+import com.astralimit.dogfit.model.WeightEntry
 import java.util.Calendar
 import java.util.Date
 
 data class DogProfile(
     val id: Long = System.currentTimeMillis(),
     val name: String = "Max",
-    val petType: PetType = PetType.DOG,
+    val petType: PetKind = PetKind.DOG,
     val breed: String = "Mixed",
     val birthDate: Date? = Calendar.getInstance().apply { add(Calendar.YEAR, -3) }.time,
     val age: Int = 3,
@@ -17,7 +21,7 @@ data class DogProfile(
     val imageUrl: String = "",
     val color: String = "",
     val microchipNumber: String = "",
-    val medicalRecord: PetMedicalRecord = PetMedicalRecord(),
+    val medicalRecord: PetMedicalRecordModel = PetMedicalRecordModel(),
     val vetVisits: List<VetVisitRecord> = emptyList(),
     val targetActiveMinutes: Int = 60,
     val targetDailySteps: Int = 5000,
@@ -30,9 +34,3 @@ data class DogProfile(
     val calibrationWalkFeatures: CalibrationFeatures = CalibrationFeatures(),
     val calibrationRunFeatures: CalibrationFeatures = CalibrationFeatures()
 )
-
-typealias VetVisitRecord = com.astralimit.dogfit.model.VetVisitRecord
-typealias VetVisit = com.astralimit.dogfit.model.VetVisitRecord
-
-typealias WeightEntry = com.astralimit.dogfit.model.WeightEntry
-typealias WeightRecord = com.astralimit.dogfit.model.WeightEntry

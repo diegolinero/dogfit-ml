@@ -1,5 +1,6 @@
 package com.astralimit.dogfit
 
+import com.astralimit.dogfit.model.*
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -193,7 +194,7 @@ fun DogHealthScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Tipo:", style = MaterialTheme.typography.bodyMedium)
-                        Text(if (profile?.petType == PetType.CAT) "Gato" else "Perro", fontWeight = FontWeight.Bold)
+                        Text(if (profile?.petType == PetKind.CAT) "Gato" else "Perro", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
