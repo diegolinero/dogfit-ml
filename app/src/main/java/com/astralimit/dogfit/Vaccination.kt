@@ -17,18 +17,13 @@ data class RouteDay(
     val durationMinutes: Int
 )
 
-typealias VaccinationRecord = com.astralimit.dogfit.model.VaccinationRecord
 typealias Vaccination = com.astralimit.dogfit.model.VaccinationRecord
-typealias Deworming = com.astralimit.dogfit.model.Deworming
+typealias DewormingEntry = com.astralimit.dogfit.model.Deworming
 
-typealias PetMedicalRecordModel = com.astralimit.dogfit.model.PetMedicalRecordModel
 typealias PetMedicalRecord = com.astralimit.dogfit.model.PetMedicalRecordModel
 
-typealias MedicalReminderModel = com.astralimit.dogfit.model.MedicalReminderModel
 typealias MedicalReminder = com.astralimit.dogfit.model.MedicalReminderModel
 
-typealias ReminderKind = com.astralimit.dogfit.model.ReminderKind
 typealias ReminderType = com.astralimit.dogfit.model.ReminderKind
 
-typealias PetKind = com.astralimit.dogfit.model.PetKind
 typealias PetType = com.astralimit.dogfit.model.PetKind

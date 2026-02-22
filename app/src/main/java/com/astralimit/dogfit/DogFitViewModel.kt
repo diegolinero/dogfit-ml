@@ -789,11 +789,11 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         checkMedicalReminders()
     }
 
-    fun addDeworming(deworming: Deworming) {
+    fun addDewormingEntry(deworming: DewormingEntry) {
         val currentProfile = _dogProfile.value ?: return
         val currentRecord = currentProfile.medicalRecord
-        val updatedDewormings = currentRecord.dewormings + deworming
-        val updatedRecord = currentRecord.copy(dewormings = updatedDewormings)
+        val updatedDewormingEntrys = currentRecord.dewormings + deworming
+        val updatedRecord = currentRecord.copy(dewormings = updatedDewormingEntrys)
         _dogProfile.value = currentProfile.copy(medicalRecord = updatedRecord)
 
         NotificationHelper.scheduleMedicalReminder(
@@ -938,7 +938,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         _dogProfile.value = profile.copy(medicalRecord = profile.medicalRecord.copy(vaccinations = updated))
     }
 
-    fun updateDeworming(deworming: Deworming) {
+    fun updateDewormingEntry(deworming: DewormingEntry) {
         val profile = _dogProfile.value ?: return
         val updated = profile.medicalRecord.dewormings.map { if (it.id == deworming.id) deworming else it }
         _dogProfile.value = profile.copy(medicalRecord = profile.medicalRecord.copy(dewormings = updated))
