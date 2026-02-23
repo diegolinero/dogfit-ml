@@ -3,15 +3,18 @@ package com.astralimit.dogfit
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.content.*
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.*
+import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,21 +26,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
-import com.astralimit.dogfit.model.*
 import org.json.JSONObject
-import androidx.compose.runtime.livedata.observeAsState
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -46,8 +45,6 @@ class MainActivity : ComponentActivity() {
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_EXTRA_CONNECTED = "connected"
-        private const val REQ_PERMISSIONS = 1001
-        private const val REQ_ENABLE_BLUETOOTH = 1002
     }
 
     private val viewModel: DogFitViewModel by viewModels {
@@ -78,7 +75,9 @@ class MainActivity : ComponentActivity() {
             if (intent == null) return
             when (intent.action) {
                 BLE_ACTION_STATUS -> {
-                    viewModel.updateBleConnection(intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false))
+                    viewModel.updateBleConnection(
+                        intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false)
+                    )
                 }
                 BLE_ACTION_NEW_DATA -> {
                     if (intent.hasExtra("activity_label")) {
@@ -118,7 +117,6 @@ class MainActivity : ComponentActivity() {
         }
 
         handleNotificationIntent(intent)
-
         ensureBleReadyAndStartService()
     }
 
@@ -154,7 +152,7 @@ class MainActivity : ComponentActivity() {
                 viewModel.addGpsLocation(lat, lng, date, time)
             }
         } catch (e: Exception) {
-            Log.e("MainActivity", "Error parsing BLE data", e)
+            Log.e(TAG, "Error parsing BLE data", e)
         }
     }
 
@@ -183,7 +181,7 @@ class MainActivity : ComponentActivity() {
 
         if (!adapter.isEnabled) {
             Log.w(TAG, "Bluetooth está apagado; solicitando habilitar")
-            startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), REQ_ENABLE_BLUETOOTH)
+            enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
 
@@ -193,78 +191,53 @@ class MainActivity : ComponentActivity() {
 
     private fun checkPermissions(): Boolean {
         val permissions = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        } else {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+
+        return permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private fun requestPermissions() {
         val permissions = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        } else {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+
         Log.i(TAG, "Solicitando permisos runtime: $permissions")
-        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), REQ_PERMISSIONS)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_ENABLE_BLUETOOTH) {
-            Log.i(TAG, "Resultado enable Bluetooth: resultCode=$resultCode")
-            ensureBleReadyAndStartService()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_PERMISSIONS) return
-
-        val denied = permissions.indices
-            .filter { grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED }
-            .map { permissions[it] }
-
-        if (denied.isNotEmpty()) {
-            Log.e(TAG, "Permisos BLE denegados: $denied")
-            return
-        }
-
-        Log.i(TAG, "Permisos BLE otorgados")
-        ensureBleReadyAndStartService()
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     override fun onResume() {
         super.onResume()
+        val filter = IntentFilter().apply {
+            addAction(BLE_ACTION_NEW_DATA)
+            addAction(BLE_ACTION_STATUS)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(BLE_ACTION_NEW_DATA)
-                addAction(BLE_ACTION_STATUS)
-            }, RECEIVER_NOT_EXPORTED)
+            registerReceiver(dataReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(dataReceiver, IntentFilter().apply {
-                addAction(BLE_ACTION_NEW_DATA)
-                addAction(BLE_ACTION_STATUS)
-            })
+            registerReceiver(dataReceiver, filter)
         }
     }
 
@@ -513,9 +486,7 @@ fun StatusCard(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(20.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Icon(
                 icon,
                 contentDescription = null,
@@ -585,8 +556,7 @@ fun QuickAccessCard(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = modifier
-            .clickable { onClick() },
+        modifier = modifier.clickable { onClick() },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -597,7 +567,8 @@ fun QuickAccessCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
