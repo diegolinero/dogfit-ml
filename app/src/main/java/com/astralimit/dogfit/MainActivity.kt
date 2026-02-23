@@ -9,6 +9,7 @@ import android.os.*
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -32,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
 import com.astralimit.dogfit.model.*
@@ -52,6 +52,25 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: DogFitViewModel by viewModels {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+    }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val denied = result.filterValues { granted -> !granted }.keys
+        if (denied.isNotEmpty()) {
+            Log.e(TAG, "Permisos BLE denegados: $denied")
+            return@registerForActivityResult
+        }
+        Log.i(TAG, "Permisos BLE otorgados")
+        ensureBleReadyAndStartService()
+    }
+
+    private val enableBluetoothLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Log.i(TAG, "Resultado enable Bluetooth: resultCode=${result.resultCode}")
+        ensureBleReadyAndStartService()
     }
 
     private val dataReceiver = object : BroadcastReceiver() {
