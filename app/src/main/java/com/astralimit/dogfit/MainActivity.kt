@@ -46,6 +46,8 @@ class MainActivity : ComponentActivity() {
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_EXTRA_CONNECTED = "connected"
+        private const val REQ_PERMISSIONS = 1001
+        private const val REQ_ENABLE_BLUETOOTH = 1002
     }
 
     private val viewModel: DogFitViewModel by viewModels {
@@ -181,7 +183,7 @@ class MainActivity : ComponentActivity() {
 
         if (!adapter.isEnabled) {
             Log.w(TAG, "Bluetooth está apagado; solicitando habilitar")
-            enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), REQ_ENABLE_BLUETOOTH)
             return
         }
 
@@ -217,7 +219,37 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         Log.i(TAG, "Solicitando permisos runtime: $permissions")
-        permissionLauncher.launch(permissions.toTypedArray())
+        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), REQ_PERMISSIONS)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_ENABLE_BLUETOOTH) {
+            Log.i(TAG, "Resultado enable Bluetooth: resultCode=$resultCode")
+            ensureBleReadyAndStartService()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_PERMISSIONS) return
+
+        val denied = permissions.indices
+            .filter { grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED }
+            .map { permissions[it] }
+
+        if (denied.isNotEmpty()) {
+            Log.e(TAG, "Permisos BLE denegados: $denied")
+            return
+        }
+
+        Log.i(TAG, "Permisos BLE otorgados")
+        ensureBleReadyAndStartService()
     }
 
     override fun onResume() {
