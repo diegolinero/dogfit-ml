@@ -1,12 +1,15 @@
 package com.astralimit.dogfit
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.*
 import android.content.pm.PackageManager
 import android.os.*
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -30,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
 import com.astralimit.dogfit.model.*
@@ -40,6 +42,7 @@ import androidx.compose.runtime.livedata.observeAsState
 class MainActivity : ComponentActivity() {
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_EXTRA_CONNECTED = "connected"
@@ -47,6 +50,25 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: DogFitViewModel by viewModels {
         androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+    }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val denied = result.filterValues { granted -> !granted }.keys
+        if (denied.isNotEmpty()) {
+            Log.e(TAG, "Permisos BLE denegados: $denied")
+            return@registerForActivityResult
+        }
+        Log.i(TAG, "Permisos BLE otorgados")
+        ensureBleReadyAndStartService()
+    }
+
+    private val enableBluetoothLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Log.i(TAG, "Resultado enable Bluetooth: resultCode=${result.resultCode}")
+        ensureBleReadyAndStartService()
     }
 
     private val dataReceiver = object : BroadcastReceiver() {
@@ -95,11 +117,7 @@ class MainActivity : ComponentActivity() {
 
         handleNotificationIntent(intent)
 
-        if (checkPermissions()) {
-            startService(Intent(this, DogFitBleService::class.java))
-        } else {
-            requestPermissions()
-        }
+        ensureBleReadyAndStartService()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -146,8 +164,36 @@ class MainActivity : ComponentActivity() {
         viewModel.updateStepsFromBle(stepsTotal)
     }
 
+    private fun ensureBleReadyAndStartService() {
+        if (!checkPermissions()) {
+            Log.w(TAG, "Permisos BLE faltantes antes de iniciar escaneo/conexión")
+            requestPermissions()
+            return
+        }
+
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val adapter = btManager.adapter
+
+        if (adapter == null) {
+            Log.e(TAG, "BluetoothAdapter no disponible en este dispositivo")
+            return
+        }
+
+        if (!adapter.isEnabled) {
+            Log.w(TAG, "Bluetooth está apagado; solicitando habilitar")
+            enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
+
+        Log.i(TAG, "Permisos y Bluetooth OK, iniciando DogFitBleService")
+        startService(Intent(this, DogFitBleService::class.java))
+    }
+
     private fun checkPermissions(): Boolean {
-        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -159,9 +205,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissions() {
-        val permissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -169,7 +216,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 1)
+        Log.i(TAG, "Solicitando permisos runtime: $permissions")
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     override fun onResume() {

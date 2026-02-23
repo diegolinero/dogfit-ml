@@ -6,9 +6,13 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
 
-    <!-- Permisos para ubicación (requerido para Bluetooth scanning en Android 6+) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Permisos ubicación solo para API <= 30 -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="30" />
 
     <!-- Permisos para servicio en primer plano -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
