@@ -342,6 +342,10 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         updateMonthlyStats()
     }
 
+    fun reloadActivityTimesFromDatabase() {
+        updateDailyStats()
+    }
+
     private fun updateDailyStats() {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val todayData = _activityHistory.value?.filter {
@@ -462,6 +466,55 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     fun getBreedRecommendation(breed: String): BreedRecommendation? = breedRecommendations[breed]
     fun getAllBreeds(): List<String> = breedRecommendations.keys.toList()
+
+    fun saveFullCalibration(rest: CalibrationFeatures, walk: CalibrationFeatures, run: CalibrationFeatures) {
+        activityClassifier.applyFullCalibration(rest, walk, run)
+
+        val profile = _dogProfile.value ?: DogProfile()
+        _dogProfile.value = profile.copy(
+            isCalibrated = true,
+            calibrationRestValue = rest.mean,
+            calibrationWalkValue = walk.mean,
+            calibrationRunValue = run.mean,
+            calibrationRestFeatures = rest,
+            calibrationWalkFeatures = walk,
+            calibrationRunFeatures = run
+        )
+    }
+
+    fun addVetVisit(visit: VetVisitRecord) {
+        val profile = _dogProfile.value ?: return
+        _dogProfile.value = profile.copy(vetVisits = profile.vetVisits + visit)
+    }
+
+    fun updateVetVisit(visit: VetVisitRecord) {
+        val profile = _dogProfile.value ?: return
+        val updated = profile.vetVisits.map { if (it.id == visit.id) visit else it }
+        _dogProfile.value = profile.copy(vetVisits = updated)
+    }
+
+    fun deleteVetVisit(visit: VetVisitRecord) {
+        val profile = _dogProfile.value ?: return
+        _dogProfile.value = profile.copy(vetVisits = profile.vetVisits.filterNot { it.id == visit.id })
+    }
+
+    fun calculateAge(birthDate: Date?): Int {
+        birthDate ?: return 0
+        val now = Calendar.getInstance()
+        val birth = Calendar.getInstance().apply { time = birthDate }
+
+        var age = now.get(Calendar.YEAR) - birth.get(Calendar.YEAR)
+        if (now.get(Calendar.DAY_OF_YEAR) < birth.get(Calendar.DAY_OF_YEAR)) age--
+        return age.coerceAtLeast(0)
+    }
+
+    fun addWeightRecord(record: WeightEntry) {
+        val profile = _dogProfile.value ?: return
+        _dogProfile.value = profile.copy(
+            weight = record.weight,
+            weightHistory = profile.weightHistory + record
+        )
+    }
 
     // =========================================================
     // GPS (igual)

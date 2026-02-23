@@ -7,6 +7,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
@@ -44,7 +46,7 @@ fun DogHealthScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
     val scrollState = rememberScrollState()
     val profile by viewModel.dogProfile.observeAsState()
     val dailyStats by viewModel.dailyStats.observeAsState(DailySummary())
-    val activityTimes by viewModel.activityTimes.collectAsState()
+    val activityTimes: Map<Int, Long> by viewModel.activityTimes.collectAsState(initial = emptyMap())
 
     val targetActiveMinutes = profile?.targetActiveMinutes ?: 60
     val actualActiveMinutes = dailyStats?.totalActiveMinutes ?: 0
@@ -251,7 +253,7 @@ fun ScoreItem(label: String, score: Int, detail: String) {
 
 @Composable
 fun ActivityTimeItem(icon: ImageVector, label: String, timeMs: Long) {
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(timeMs).toInt()
+    val minutes = TimeUnit.SECONDS.toMinutes(timeMs).toInt()
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Text("$minutes min", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)

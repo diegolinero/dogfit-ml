@@ -12,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,14 +43,14 @@ class StatisticsActivity : ComponentActivity() {
 fun StatisticsScreen(viewModel: DogFitViewModel, onBack: () -> Unit) {
     val dailyStats by viewModel.dailyStats.observeAsState(DailySummary())
     val profile by viewModel.dogProfile.observeAsState()
-    val activityTimes by viewModel.activityTimes.collectAsState()
+    val activityTimes: Map<Int, Long> by viewModel.activityTimes.collectAsState(initial = emptyMap())
     var selectedPeriod by remember { mutableStateOf("Día") }
     val periods = listOf("Día", "Semana", "Mes")
 
-    val restMinutes = TimeUnit.MILLISECONDS.toMinutes(activityTimes[0] ?: 0L).toInt()
-    val walkMinutes = TimeUnit.MILLISECONDS.toMinutes(activityTimes[1] ?: 0L).toInt()
-    val runMinutes = TimeUnit.MILLISECONDS.toMinutes(activityTimes[2] ?: 0L).toInt()
-    val playMinutes = TimeUnit.MILLISECONDS.toMinutes(activityTimes[3] ?: 0L).toInt()
+    val restMinutes = TimeUnit.SECONDS.toMinutes(activityTimes[0] ?: 0L).toInt()
+    val walkMinutes = TimeUnit.SECONDS.toMinutes(activityTimes[1] ?: 0L).toInt()
+    val runMinutes = TimeUnit.SECONDS.toMinutes(activityTimes[2] ?: 0L).toInt()
+    val playMinutes = TimeUnit.SECONDS.toMinutes(activityTimes[3] ?: 0L).toInt()
     val totalActiveMinutes = dailyStats?.totalActiveMinutes ?: 0
 
     Scaffold(
