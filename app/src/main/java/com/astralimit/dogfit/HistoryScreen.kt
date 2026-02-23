@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +58,7 @@ fun HistoryContent(
     val history by viewModel.activityHistory.observeAsState()
     val dailyStats by viewModel.dailyStats.observeAsState()
     val weeklyStats by viewModel.weeklyStats.observeAsState()
-    val activityTimes by viewModel.activityTimes.collectAsState()
+    val activityTimes: Map<Int, Long> by viewModel.activityTimes.collectAsState(initial = emptyMap())
 
     LaunchedEffect(Unit) {
         viewModel.reloadActivityTimesFromDatabase()

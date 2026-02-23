@@ -165,28 +165,17 @@ class MainActivity : ComponentActivity() {
      */
     private fun parseFirmwarePayload(intent: Intent) {
         val activity = intent.getIntExtra("activity_label", viewModel.getActivityValue() ?: 0)
+        val confidence = intent.getIntExtra("confidence", 0)
+        val sensorTimeMs = intent.getLongExtra("sensor_time_ms", -1L)
         val stepsTotal = intent.getIntExtra("steps_total", 0)
 
-        viewModel.updateActivity(activity)
-        viewModel.updateStepsFromBle(stepsTotal)
-
-        // Si tu ViewModel tiene un método tipo onBleSample(label, conf, tMs), lo llamaremos
-        // SIN romper compilación: usa reflection-safe con try/catch.
-        val conf = intent.getIntExtra("confidence", -1)
-        val tMs = intent.getLongExtra("sensor_time_ms", -1L)
-        if (conf >= 0 && tMs >= 0L) {
-            try {
-                val m = viewModel::class.java.getMethod(
-                    "onBleSample",
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    java.lang.Long.TYPE
-                )
-                m.invoke(viewModel, activity, conf, tMs)
-            } catch (_: Throwable) {
-                // Si no existe, no pasa nada. Luego lo agregamos cuando pegues el ViewModel.
-            }
+        if (sensorTimeMs >= 0L) {
+            viewModel.onBleSample(activity, confidence, sensorTimeMs)
+        } else {
+            viewModel.updateActivity(activity)
         }
+
+        viewModel.updateStepsFromBle(stepsTotal)
     }
 
     private fun ensureBleReadyAndStartService() {
