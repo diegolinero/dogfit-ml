@@ -5,8 +5,10 @@ import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.*
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.util.*
@@ -32,6 +34,8 @@ class DogFitBleService : Service() {
 
     private var resultChar: BluetoothGattCharacteristic? = null
     private var ackChar: BluetoothGattCharacteristic? = null
+    private var notificationsEnabled = false
+    private var connectInProgress = false
 
     private var bleEstimatedStepsTotal = 0
 
@@ -83,7 +87,18 @@ class DogFitBleService : Service() {
     private fun startScanning() {
         if (scanning) return
 
+        if (!hasBlePermissions()) {
+            Log.e(TAG, "Permisos BLE faltantes antes de escanear/conectar")
+            handler.postDelayed({ startScanning() }, 2000)
+            return
+        }
+
         val adapter = bluetoothAdapter ?: return
+        if (!adapter.isEnabled) {
+            Log.e(TAG, "Bluetooth apagado en startScanning; reintentando")
+            handler.postDelayed({ startScanning() }, 2000)
+            return
+        }
         val scanner = adapter.bluetoothLeScanner ?: return
 
         val settings = ScanSettings.Builder()
@@ -98,7 +113,18 @@ class DogFitBleService : Service() {
         handler.postDelayed(stopScanRunnable, scanTimeoutMs)
 
         // Sin filtros -> Android ve TODO y filtramos nosotros
-        scanner.startScan(null, settings, scanCallback)
+        try {
+            scanner.startScan(null, settings, scanCallback)
+            Log.i(TAG, "startScan ok (timeout=${scanTimeoutMs}ms)")
+        } catch (se: SecurityException) {
+            Log.e(TAG, "startScan SecurityException (permisos)", se)
+            scanning = false
+            handler.postDelayed({ startScanning() }, 2000)
+        } catch (t: Throwable) {
+            Log.e(TAG, "startScan error inesperado", t)
+            scanning = false
+            handler.postDelayed({ startScanning() }, 2000)
+        }
     }
 
     private fun stopScanning() {
@@ -134,11 +160,22 @@ class DogFitBleService : Service() {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val name = result.device.name ?: result.scanRecord?.deviceName ?: "N/A"
+            val serviceUuids = result.scanRecord?.serviceUuids?.joinToString { it.uuid.toString() } ?: "none"
+            Log.d(
+                TAG,
+                "Scan candidato? name=$name addr=${result.device.address} rssi=${result.rssi} serviceUuids=$serviceUuids"
+            )
             if (!isDogfitCandidate(result)) return
+            if (connectInProgress || bluetoothGatt != null) {
+                Log.d(TAG, "Ignorando candidato porque ya hay conexión en curso/activa")
+                return
+            }
 
-            Log.d(TAG, "Candidato encontrado: name=$name addr=${result.device.address} rssi=${result.rssi}")
+            Log.i(TAG, "Candidato elegido: name=$name addr=${result.device.address} rssi=${result.rssi}")
 
             stopScanning()
+            connectInProgress = true
+            Log.i(TAG, "connectGatt llamado (TRANSPORT_LE)")
 
             bluetoothGatt = result.device.connectGatt(
                 this@DogFitBleService,
@@ -162,14 +199,17 @@ class DogFitBleService : Service() {
     private val gattCallback = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            Log.i(TAG, "onConnectionStateChange status=$status newState=$newState")
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios... status=$status")
+                connectInProgress = false
 
                 rxLen = 0
                 lastSeqProcessed = -1L
                 lastAckSent = -1L
                 lastAckSentAtMs = 0
                 bleEstimatedStepsTotal = 0
+                notificationsEnabled = false
 
                 sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
@@ -181,6 +221,7 @@ class DogFitBleService : Service() {
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. status=$status. Reintentando...")
+                connectInProgress = false
 
                 sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, false)
@@ -188,6 +229,7 @@ class DogFitBleService : Service() {
 
                 resultChar = null
                 ackChar = null
+                notificationsEnabled = false
                 rxLen = 0
 
                 try { gatt.close() } catch (_: Throwable) {}
@@ -198,38 +240,35 @@ class DogFitBleService : Service() {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             Log.i(TAG, "Servicios descubiertos. status=$status. Solicitando MTU...")
-            gatt.requestMtu(256)
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "discoverServices status no exitoso: $status")
+                setupCharsAndEnableNotifications(gatt, "servicesDiscovered-nonSuccess")
+                return
+            }
+            val mtuRequested = try { gatt.requestMtu(256) } catch (_: Throwable) { false }
+            if (!mtuRequested) {
+                Log.w(TAG, "requestMtu(256) falló, usando fallback")
+                setupCharsAndEnableNotifications(gatt, "requestMtu-fallback")
+            }
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             Log.i(TAG, "MTU listo: $mtu. status=$status. Configurando...")
+            setupCharsAndEnableNotifications(gatt, "onMtuChanged")
+        }
 
-            val service = gatt.getService(SERVICE_UUID)
-            if (service == null) {
-                Log.e(TAG, "Servicio ABCD no encontrado. (¿firmware correcto?)")
-                return
-            }
-
-            resultChar = service.getCharacteristic(RESULT_CHAR_UUID)
-            ackChar = service.getCharacteristic(ACK_CHAR_UUID)
-
-            if (resultChar == null) {
-                Log.e(TAG, "Característica ABCF no encontrada")
-                return
-            }
-            if (ackChar == null) {
-                Log.e(TAG, "Característica ABD0 (ACK) no encontrada (sin ACK no hay reliability)")
-            } else {
-                ackChar?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            }
-
-            enableNotifications(gatt, resultChar)
-            maybeSendAck(force = true)
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            if (characteristic.uuid != RESULT_CHAR_UUID) return
+            onResultNotify(characteristic.value ?: ByteArray(0))
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.characteristic?.uuid == RESULT_CHAR_UUID) {
                 Log.i(TAG, "CCCD write status=$status")
+                notificationsEnabled = status == BluetoothGatt.GATT_SUCCESS
+                if (notificationsEnabled) {
+                    maybeSendAck(force = true)
+                }
             }
         }
 
@@ -239,16 +278,63 @@ class DogFitBleService : Service() {
         }
     }
 
+    private fun hasBlePermissions(): Boolean {
+        val hasScan = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+        } else true
+        val hasConnect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else true
+        val hasFine = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+        if (!hasScan || !hasConnect || !hasFine) {
+            Log.w(TAG, "Permisos faltantes: scan=$hasScan connect=$hasConnect fineLocation=$hasFine")
+        }
+        return hasScan && hasConnect && hasFine
+    }
+
+    private fun setupCharsAndEnableNotifications(gatt: BluetoothGatt, source: String) {
+        val service = gatt.getService(SERVICE_UUID)
+        Log.i(TAG, "setupChars source=$source serviceNull=${service == null}")
+        if (service == null) {
+            Log.e(TAG, "Servicio ABCD no encontrado. (¿firmware correcto?)")
+            return
+        }
+
+        resultChar = service.getCharacteristic(RESULT_CHAR_UUID)
+        ackChar = service.getCharacteristic(ACK_CHAR_UUID)
+
+        Log.i(TAG, "resultChar null? ${resultChar == null} / ackChar null? ${ackChar == null}")
+
+        if (resultChar == null) {
+            Log.e(TAG, "Característica ABCF no encontrada")
+            return
+        }
+
+        if (ackChar == null) {
+            Log.e(TAG, "Característica ABD0 (ACK) no encontrada (sin ACK no hay reliability)")
+        } else {
+            ackChar?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        }
+
+        enableNotifications(gatt, resultChar)
+    }
+
     private fun enableNotifications(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?) {
         if (characteristic == null) return
-        gatt.setCharacteristicNotification(characteristic, true)
+        val setOk = gatt.setCharacteristicNotification(characteristic, true)
+        Log.i(TAG, "setCharacteristicNotification ok=$setOk")
 
         val descriptor = characteristic.getDescriptor(CLIENT_CONFIG_UUID)
         if (descriptor != null) {
             descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            gatt.writeDescriptor(descriptor)
+            val writeOk = gatt.writeDescriptor(descriptor)
+            Log.i(TAG, "write CCCD launched=$writeOk")
         } else {
             Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado")
+            notificationsEnabled = true
         }
     }
 
@@ -257,6 +343,7 @@ class DogFitBleService : Service() {
     // =====================================================
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
+        Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size}")
 
         if (rxLen + chunk.size > rxBuffer.size) {
             Log.w(TAG, "RX overflow. Reset buffer.")
@@ -313,6 +400,7 @@ class DogFitBleService : Service() {
     private fun maybeSendAck(force: Boolean) {
         val gatt = bluetoothGatt ?: return
         val c = ackChar ?: return
+        if (!notificationsEnabled) return
         if (lastSeqProcessed < 0) return
 
         val now = SystemClock.elapsedRealtime()
@@ -327,6 +415,7 @@ class DogFitBleService : Service() {
 
         c.value = ack
         val ok = gatt.writeCharacteristic(c)
+        Log.i(TAG, "ACK enviado seq=$lastSeqProcessed bytes=${ack.joinToString(prefix = "[", postfix = "]") { (it.toInt() and 0xFF).toString() }} writeOk=$ok")
         if (ok) {
             lastAckSent = lastSeqProcessed
             lastAckSentAtMs = now
