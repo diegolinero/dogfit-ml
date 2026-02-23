@@ -34,9 +34,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
-import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -73,16 +73,19 @@ class MainActivity : ComponentActivity() {
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
+
             when (intent.action) {
                 BLE_ACTION_STATUS -> {
-                    viewModel.updateBleConnection(
-                        intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false)
-                    )
+                    val connected = intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false)
+                    viewModel.updateBleConnection(connected)
                 }
+
                 BLE_ACTION_NEW_DATA -> {
+                    // Firmware (binario -> extras)
                     if (intent.hasExtra("activity_label")) {
                         parseFirmwarePayload(intent)
                     } else {
+                        // Legacy (JSON string)
                         intent.getStringExtra("data")?.let { parsear(it) }
                     }
                 }
@@ -97,21 +100,11 @@ class MainActivity : ComponentActivity() {
             DogFitTheme {
                 MainScreen(
                     viewModel = viewModel,
-                    onNavigateToProfile = {
-                        startActivity(Intent(this, PetProfileScreen::class.java))
-                    },
-                    onNavigateToHistory = {
-                        startActivity(Intent(this, HistoryScreen::class.java))
-                    },
-                    onNavigateToRoutes = {
-                        startActivity(Intent(this, RoutesScreen::class.java))
-                    },
-                    onNavigateToHealth = {
-                        startActivity(Intent(this, DogHealthActivity::class.java))
-                    },
-                    onNavigateToAlerts = {
-                        startActivity(Intent(this, AlertsActivity::class.java))
-                    }
+                    onNavigateToProfile = { startActivity(Intent(this, PetProfileScreen::class.java)) },
+                    onNavigateToHistory = { startActivity(Intent(this, HistoryScreen::class.java)) },
+                    onNavigateToRoutes = { startActivity(Intent(this, RoutesScreen::class.java)) },
+                    onNavigateToHealth = { startActivity(Intent(this, DogHealthActivity::class.java)) },
+                    onNavigateToAlerts = { startActivity(Intent(this, AlertsActivity::class.java)) }
                 )
             }
         }
@@ -131,6 +124,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Legacy JSON payload: {"act":..,"stp":..,"bat":..,"lat":..,"lng":..}
+     */
     private fun parsear(jsonString: String) {
         try {
             val json = JSONObject(jsonString)
@@ -156,12 +152,41 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Firmware extras:
+     * - activity_label (Int)
+     * - confidence (Int)
+     * - sequence (Long/Int)
+     * - sensor_time_ms (Long/Int)
+     * - steps_total (Int)
+     *
+     * OJO: aquí NO sumamos “minutos”. Solo pasamos estado/steps al VM.
+     * El cálculo de minutos debe hacerse en el ViewModel (usando sensor_time_ms).
+     */
     private fun parseFirmwarePayload(intent: Intent) {
         val activity = intent.getIntExtra("activity_label", viewModel.getActivityValue() ?: 0)
         val stepsTotal = intent.getIntExtra("steps_total", 0)
 
         viewModel.updateActivity(activity)
         viewModel.updateStepsFromBle(stepsTotal)
+
+        // Si tu ViewModel tiene un método tipo onBleSample(label, conf, tMs), lo llamaremos
+        // SIN romper compilación: usa reflection-safe con try/catch.
+        val conf = intent.getIntExtra("confidence", -1)
+        val tMs = intent.getLongExtra("sensor_time_ms", -1L)
+        if (conf >= 0 && tMs >= 0L) {
+            try {
+                val m = viewModel::class.java.getMethod(
+                    "onBleSample",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    java.lang.Long.TYPE
+                )
+                m.invoke(viewModel, activity, conf, tMs)
+            } catch (_: Throwable) {
+                // Si no existe, no pasa nada. Luego lo agregamos cuando pegues el ViewModel.
+            }
+        }
     }
 
     private fun ensureBleReadyAndStartService() {
@@ -186,7 +211,13 @@ class MainActivity : ComponentActivity() {
         }
 
         Log.i(TAG, "Permisos y Bluetooth OK, iniciando DogFitBleService")
-        startService(Intent(this, DogFitBleService::class.java))
+
+        val serviceIntent = Intent(this, DogFitBleService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
     }
 
     private fun checkPermissions(): Boolean {
@@ -243,7 +274,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        unregisterReceiver(dataReceiver)
+        try {
+            unregisterReceiver(dataReceiver)
+        } catch (_: IllegalArgumentException) {
+            // ya estaba desregistrado
+        }
     }
 }
 
@@ -265,9 +300,11 @@ fun MainScreen(
     val alerts by viewModel.alerts.observeAsState()
     val bleConnected by viewModel.bleConnected.collectAsState()
 
-    val targetSteps = profile?.targetActiveMinutes ?: 5000
-    val currentSteps = dailyStats?.totalActiveMinutes ?: 0
-    val progress = (currentSteps.toFloat() / targetSteps).coerceIn(0f, 1f)
+    // ✅ CORRECCIÓN: aquí mostramos MINUTOS (no “steps” mal nombrado)
+    val targetMinutes = profile?.targetActiveMinutes ?: 60
+    // usa el campo que realmente sea minutos activos del día:
+    val currentMinutes = dailyStats?.activeMinutes ?: 0
+    val progress = (currentMinutes.toFloat() / targetMinutes.toFloat()).coerceIn(0f, 1f)
 
     Scaffold(
         topBar = {
@@ -291,9 +328,7 @@ fun MainScreen(
                         BadgedBox(
                             badge = {
                                 val pendingAlerts = alerts?.size ?: 0
-                                if (pendingAlerts > 0) {
-                                    Badge { Text("$pendingAlerts") }
-                                }
+                                if (pendingAlerts > 0) Badge { Text("$pendingAlerts") }
                             }
                         ) {
                             Icon(Icons.Default.Notifications, contentDescription = "Alertas")
@@ -317,6 +352,7 @@ fun MainScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -344,7 +380,7 @@ fun MainScreen(
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "$currentSteps",
+                                text = "$currentMinutes",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.primary
@@ -366,7 +402,7 @@ fun MainScreen(
                     )
 
                     Text(
-                        text = "Meta: $targetSteps min",
+                        text = "Meta: $targetMinutes min",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -394,6 +430,7 @@ fun MainScreen(
                     },
                     color = MaterialTheme.colorScheme.secondaryContainer
                 )
+
                 StatusCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.BatteryFull,
