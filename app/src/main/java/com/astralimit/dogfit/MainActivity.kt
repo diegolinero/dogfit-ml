@@ -168,17 +168,21 @@ class MainActivity : ComponentActivity() {
      * El cálculo de minutos debe hacerse en el ViewModel (usando sensor_time_ms).
      */
     private fun parseFirmwarePayload(intent: Intent) {
-        val activity = intent.getIntExtra("activity_label", viewModel.getActivityValue() ?: 0)
-        val confidence = intent.getIntExtra("confidence", 0)
-        val sensorTimeMs = intent.getLongExtra("sensor_time_ms", -1L)
+
+        val activity = intent.getIntExtra(
+            "activity_label",
+            viewModel.getActivityValue() ?: 0
+        )
+
         val stepsTotal = intent.getIntExtra("steps_total", 0)
         val battery = intent.getIntExtra("battery_percent", viewModel.getBatteryValue() ?: 0)
 
-        if (sensorTimeMs >= 0L) {
-            viewModel.onBleSample(activity, confidence, sensorTimeMs)
-        } else {
-            viewModel.updateActivity(activity)
-        }
+        val battery = intent.getIntExtra(
+            "battery_percent",
+            viewModel.getBatteryValue() ?: 0
+        )
+
+        viewModel.updateActivity(activity)
 
         viewModel.updateStepsFromBle(stepsTotal)
         viewModel.updateBattery(battery)
