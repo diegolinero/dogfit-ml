@@ -209,7 +209,7 @@ class DogFitBleService : Service() {
         rxLen = 0
 
         if (broadcastDisconnected) {
-            sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
+            sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
                 putExtra(BLE_EXTRA_CONNECTED, false)
             })
         }
@@ -315,7 +315,7 @@ class DogFitBleService : Service() {
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
 
-                sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
+                sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
                 })
 
@@ -532,7 +532,7 @@ class DogFitBleService : Service() {
                     put("t_ms", tMs)
                 }.toString())
             }
-            sendBroadcast(intent)
+            sendInternalBroadcast(intent)
 
             offset += REC_BYTES
         }
@@ -606,6 +606,11 @@ class DogFitBleService : Service() {
             val channel = NotificationChannel("DogFitChannel", "DogFit", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+    }
+
+    private fun sendInternalBroadcast(intent: Intent) {
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
     }
 
     override fun onBind(intent: Intent?) = null
