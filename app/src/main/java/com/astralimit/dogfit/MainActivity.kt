@@ -175,6 +175,7 @@ class MainActivity : ComponentActivity() {
         )
 
         val stepsTotal = intent.getIntExtra("steps_total", 0)
+        val battery = intent.getIntExtra("battery_percent", viewModel.getBatteryValue() ?: 0)
 
         val battery = intent.getIntExtra(
             "battery_percent",
