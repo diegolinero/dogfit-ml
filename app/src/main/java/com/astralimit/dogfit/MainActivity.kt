@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
             viewModel.updateStepsFromBle(steps)
 
             if (json.has("bat")) {
-                viewModel.updateBattery(json.optInt("bat", viewModel.getBatteryValue() ?: 0))
+                viewModel.updateBattery(json.optInt("bat").takeIf { it in 1..100 })
             }
 
             if (json.has("lat") && json.has("lng")) {
@@ -182,10 +182,8 @@ class MainActivity : ComponentActivity() {
         val stepsTotal = intent.getIntExtra("steps_total", 0)
         val confidence = intent.getIntExtra("confidence", 0)
         val sensorTimeMs = intent.getLongExtra("sensor_time_ms", 0L)
-        val battery = intent.getIntExtra(
-            "battery_percent",
-            viewModel.getBatteryValue() ?: 0
-        )
+        val batteryRaw = intent.getIntExtra("battery_percent", -1)
+        val battery = batteryRaw.takeIf { it in 1..100 }
 
         if (sensorTimeMs > 0L) {
             viewModel.onBleSample(activity, confidence, sensorTimeMs)
