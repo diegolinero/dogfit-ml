@@ -328,9 +328,9 @@ fun MainScreen(
     val bleConnected by viewModel.bleConnected.collectAsState()
 
     val currentStateLabel = when (activityValue) {
-        0 -> "Reposo"
-        1 -> "Caminando"
-        2 -> "Corriendo"
+        0 -> "Caminando"
+        1 -> "Corriendo"
+        2 -> "Reposo"
         3 -> "Jugando"
         else -> "Sin datos"
     }

@@ -1,6 +1,7 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <ArduinoBLE.h>
-#include <Arduino_LSM6DS3.h>
+#include <LSM6DS3.h>
 
 #include <dlinero-project-1_inferencing.h>
 
@@ -16,7 +17,7 @@ static const char* ACK_UUID_STR     = "0000ABD0-0000-1000-8000-00805F9B34FB";
 
 BLEService dogfitService(SERVICE_UUID_STR);
 
-// 10 bytes/rec, 2 recs/notify = 20 bytes (entra en MTU default)
+// 10 bytes/rec, 2 recs/notify = 20 bytes
 static constexpr int REC_BYTES = 10;
 static constexpr int MAX_RECS_PER_NOTIFY = 2;
 static constexpr int NOTIFY_BYTES = REC_BYTES * MAX_RECS_PER_NOTIFY; // 20
@@ -27,9 +28,135 @@ BLECharacteristic ackChar(ACK_UUID_STR, BLEWriteWithoutResponse | BLEWrite, 4);
 static volatile bool g_connected = false;
 
 // =====================================================
-// RAM CIRCULAR BUFFER + ACK
+// BLE estándar de batería: 180F / 2A19
 // =====================================================
-static constexpr uint16_t MAX_RECORDS = 2048; // 2048 * (struct) ~ OK en RAM
+BLEService batteryService("180F");
+BLEUnsignedCharCharacteristic batteryLevelChar("2A19", BLERead | BLENotify); // 0..100
+
+// =====================================================
+// Battery (XIAO nRF52840 Sense)
+// VBAT sense: P0.31, y P0.14 debe mantenerse LOW (no HIGH).
+// =====================================================
+#define VBAT_ADC_PIN   P0_31
+#define VBAT_ENABLE    P0_14
+
+#define ADC_BITS 12
+#define ADC_MAX 4095
+
+// Ajusta si quieres (tu calibración)
+#define ADC_REF 3.37f
+#define VBAT_MULTIPLIER 2.96f
+
+// Anti-fantasma (batería desconectada con USB)
+#define BAT_SAMPLE_COUNT       6
+#define BAT_SAMPLE_DELAY_MS    2
+#define BAT_FLOAT_SPAN_V       0.15f
+#define BAT_CONNECT_SPAN_V     0.08f
+#define VBAT_MIN_REAL          3.00f
+#define VBAT_MAX_REAL          4.25f
+
+static bool  g_batPresent = true;
+static uint8_t g_batPct = 0;
+static float g_batV = 0.0f;
+static uint32_t g_lastBatMs = 0;
+static const uint32_t BAT_UPDATE_MS = 2000;
+
+static inline float readVbatOnce() {
+  // Mantener P0.14 en LOW SIEMPRE
+  pinMode(VBAT_ENABLE, OUTPUT);
+  digitalWrite(VBAT_ENABLE, LOW);
+  delayMicroseconds(200);
+
+  analogReadResolution(ADC_BITS);
+  uint16_t raw = analogRead(VBAT_ADC_PIN);
+
+  return (raw / (float)ADC_MAX) * ADC_REF * VBAT_MULTIPLIER;
+}
+
+static inline void readVbatWindow(float &avg, float &vmin, float &vmax) {
+  float sum = 0;
+  vmin = 99.0f;
+  vmax = 0.0f;
+
+  for (int i = 0; i < BAT_SAMPLE_COUNT; i++) {
+    float v = readVbatOnce();
+    sum += v;
+    if (v < vmin) vmin = v;
+    if (v > vmax) vmax = v;
+    delay(BAT_SAMPLE_DELAY_MS);
+  }
+  avg = sum / BAT_SAMPLE_COUNT;
+}
+
+static inline uint8_t vbatToPercent(float v) {
+  if (v >= 4.20f) return 100;
+  if (v >= 4.10f) return 95;
+  if (v >= 4.00f) return 90;
+  if (v >= 3.90f) return 80;
+  if (v >= 3.80f) return 70;
+  if (v >= 3.70f) return 60;
+  if (v >= 3.60f) return 50;
+  if (v >= 3.50f) return 40;
+  if (v >= 3.40f) return 30;
+  if (v >= 3.30f) return 20;
+  return 10;
+}
+
+static void updateBatteryIfDue() {
+  uint32_t now = millis();
+  if (now - g_lastBatMs < BAT_UPDATE_MS) return;
+  g_lastBatMs = now;
+
+  float avg, vmin, vmax;
+  readVbatWindow(avg, vmin, vmax);
+  float span = vmax - vmin;
+
+  bool looksReal = (avg >= VBAT_MIN_REAL && avg <= VBAT_MAX_REAL);
+
+  if (g_batPresent) {
+    if (!looksReal || span > BAT_FLOAT_SPAN_V) g_batPresent = false;
+  } else {
+    if (looksReal && span < BAT_CONNECT_SPAN_V) g_batPresent = true;
+  }
+
+  g_batV = avg;
+  g_batPct = g_batPresent ? vbatToPercent(avg) : 0;
+
+  // Actualiza característica estándar de batería
+  batteryLevelChar.writeValue(g_batPct);
+}
+
+// =====================================================
+// IMU (Seeed LSM6DS3 lib) - TU CONFIG BUENA
+// =====================================================
+LSM6DS3 myIMU(I2C_MODE, 0x6A);
+static bool imuReady = false;
+static uint32_t lastRetryMs = 0;
+
+static bool initIMU() {
+  if (myIMU.begin() != 0) {
+    Serial.println("IMU no detectado...");
+    return false;
+  }
+
+  myIMU.settings.accelRange      = 2;
+  myIMU.settings.accelSampleRate = 104;
+  myIMU.settings.gyroRange       = 245;
+  myIMU.settings.gyroSampleRate  = 104;
+
+  if (myIMU.begin() != 0) {
+    Serial.println("IMU re-begin fallo");
+    return false;
+  }
+
+  Serial.println("IMU OK");
+  return true;
+}
+
+// =====================================================
+// RAM CIRCULAR BUFFER + ACK (uint32 seq)
+// =====================================================
+static constexpr uint16_t MAX_RECORDS = 2048;
 
 typedef struct {
   uint32_t t_ms;
@@ -86,9 +213,7 @@ static inline uint32_t read_u32_le(const uint8_t* src) {
        | ((uint32_t)src[3] << 24);
 }
 
-// =====================================================
 // EI get_data
-// =====================================================
 static int ei_get_data(size_t offset, size_t length, float* out_ptr) {
   for (size_t i = 0; i < length; i++) {
     size_t idx = (ei_ring_head + offset + i) % EI_VALUES_PER_WINDOW;
@@ -111,6 +236,7 @@ static void onDisconnect(BLEDevice central) {
   (void)central;
   g_connected = false;
   Serial.println("BLE disconnected");
+  BLE.advertise(); // igual que tu sketch bueno
 }
 
 // ACK handler (uint32 LE)
@@ -121,7 +247,6 @@ static void onAckWritten(BLEDevice central, BLECharacteristic characteristic) {
   const uint8_t* v = characteristic.value();
   uint32_t ack = read_u32_le(v);
 
-  // Advance tail while seq <= ack
   while (!bufferEmpty()) {
     uint16_t t = g_tail;
     uint32_t s = g_buf[t].seq;
@@ -134,9 +259,6 @@ static void onAckWritten(BLEDevice central, BLECharacteristic characteristic) {
   }
 }
 
-// =====================================================
-// Store record (removed only by ACK)
-// =====================================================
 static void storeRecord(uint32_t t_ms, uint8_t label, uint8_t conf) {
   g_buf[g_head].t_ms  = t_ms;
   g_buf[g_head].label = label;
@@ -145,7 +267,6 @@ static void storeRecord(uint32_t t_ms, uint8_t label, uint8_t conf) {
 
   uint16_t newHead = nextIdx(g_head);
 
-  // If full, drop oldest (advance tail)
   if (idxEq(newHead, g_tail)) {
     g_tail = nextIdx(g_tail);
     if (idxEq(g_send, g_tail)) g_send = g_tail;
@@ -154,9 +275,6 @@ static void storeRecord(uint32_t t_ms, uint8_t label, uint8_t conf) {
   g_head = newHead;
 }
 
-// =====================================================
-// Send backlog (does NOT delete; only ACK deletes)
-// =====================================================
 static void syncBacklog() {
   if (!g_connected) return;
   if (!resChar.subscribed()) return;
@@ -175,7 +293,6 @@ static void syncBacklog() {
   while (!idxEq(cursor, g_head) && count < MAX_RECS_PER_NOTIFY) {
     const LogRec& r = g_buf[cursor];
 
-    // pack 10 bytes: t_ms(4) label(1) conf(1) seq(4)
     uint8_t* p = payload + (count * REC_BYTES);
     write_u32_le(p + 0, r.t_ms);
     p[4] = r.label;
@@ -209,17 +326,23 @@ static void setupBle() {
 
   ackChar.setEventHandler(BLEWritten, onAckWritten);
 
+  // Servicio propietario
   dogfitService.addCharacteristic(resChar);
   dogfitService.addCharacteristic(ackChar);
-
   BLE.addService(dogfitService);
   BLE.setAdvertisedService(dogfitService);
 
+  // Servicio estándar batería
+  batteryService.addCharacteristic(batteryLevelChar);
+  BLE.addService(batteryService);
+  batteryLevelChar.writeValue((uint8_t)0);
+
+  // init
   uint8_t z[1] = {0};
   resChar.writeValue(z, 1);
 
   BLE.advertise();
-  Serial.println("BLE advertising");
+  Serial.println("Advertising ON - busca DOGFIT / DOGFIT-001");
 }
 
 // =====================================================
@@ -227,47 +350,57 @@ static void setupBle() {
 // =====================================================
 void setup() {
   Serial.begin(115200);
-  delay(600);
+  delay(800);
 
-  if (!IMU.begin()) {
-    Serial.println("IMU.begin failed (Arduino_LSM6DS3)");
-    while (1) delay(1000);
-  }
-  Serial.println("IMU OK");
+  Serial.println("DOGFIT: EI + BLE + ACK(uint32) + LSM6DS3 (Seeed) + BAS(180F/2A19)");
+
+  Wire.begin();
+  delay(50);
+
+  // IMU como tu sketch bueno
+  imuReady = initIMU();
 
   setupBle();
+
   Serial.println("Setup OK");
 }
 
 void loop() {
   BLE.poll();
 
-  // flush backlog
+  uint32_t now = millis();
+
+  // Actualiza batería por BAS cada ~2s
+  updateBatteryIfDue();
+
+  // Retry IMU if not ready
+  if (!imuReady && (now - lastRetryMs >= 2000)) {
+    lastRetryMs = now;
+    imuReady = initIMU();
+  }
+
+  // Flush backlog cuando se pueda
   syncBacklog();
 
-  // sample rate
-  uint32_t now = millis();
+  if (!imuReady) {
+    delay(10);
+    return;
+  }
+
+  // Sampling interval
   if (now - lastSampleMs < SAMPLE_INTERVAL_MS) return;
   lastSampleMs = now;
 
-  // Read IMU
-  float ax_g, ay_g, az_g;
-  float gx_dps, gy_dps, gz_dps;
-
-  if (!IMU.accelerationAvailable() || !IMU.gyroscopeAvailable()) return;
-
-  IMU.readAcceleration(ax_g, ay_g, az_g);
-  IMU.readGyroscope(gx_dps, gy_dps, gz_dps);
-
-  // Convert accel from g -> m/s^2
+  // Read IMU (floats)
   const float G_TO_MS2 = 9.80665f;
-  float ax = ax_g * G_TO_MS2;
-  float ay = ay_g * G_TO_MS2;
-  float az = az_g * G_TO_MS2;
 
-  float gx = gx_dps;
-  float gy = gy_dps;
-  float gz = gz_dps;
+  float ax = myIMU.readFloatAccelX() * G_TO_MS2;
+  float ay = myIMU.readFloatAccelY() * G_TO_MS2;
+  float az = myIMU.readFloatAccelZ() * G_TO_MS2;
+
+  float gx = myIMU.readFloatGyroX();
+  float gy = myIMU.readFloatGyroY();
+  float gz = myIMU.readFloatGyroZ();
 
   // EI ring buffer (6 axes)
   ei_ring[ei_ring_head] = ax; ei_ring_head = (ei_ring_head + 1) % EI_VALUES_PER_WINDOW;
@@ -304,6 +437,6 @@ void loop() {
 
   uint8_t conf = (uint8_t)min(100.0f, max(0.0f, best_v * 100.0f));
 
-  // Store record (removed only after ACK)
+  // Store record; removal only after ACK
   storeRecord(now, (uint8_t)best_i, conf);
 }
