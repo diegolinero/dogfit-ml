@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.canvas.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -31,12 +32,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
@@ -286,14 +290,17 @@ fun MainScreen(
     val dailyStats by viewModel.dailyStats.observeAsState()
     val batteryValue by viewModel.batteryValue.collectAsState()
     val activityValue by viewModel.activityValue.collectAsState()
+    val activityTimes by viewModel.activityTimes.collectAsState()
     val alerts by viewModel.alerts.observeAsState()
     val bleConnected by viewModel.bleConnected.collectAsState()
 
-    // ✅ CORRECCIÓN: aquí mostramos MINUTOS (no “steps” mal nombrado)
-    val targetMinutes = profile?.targetActiveMinutes ?: 60
-    // usa el campo que realmente sea minutos activos del día:
-    val currentMinutes = dailyStats?.activeMinutes ?: 0
-    val progress = (currentMinutes.toFloat() / targetMinutes.toFloat()).coerceIn(0f, 1f)
+    val currentStateLabel = when (activityValue) {
+        0 -> "Reposo"
+        1 -> "Caminando"
+        2 -> "Corriendo"
+        3 -> "Jugando"
+        else -> "Sin datos"
+    }
 
     Scaffold(
         topBar = {
@@ -342,61 +349,12 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                shape = RoundedCornerShape(32.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier.size(180.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxSize(),
-                            strokeWidth = 12.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
+            ActivityDistributionCard(
+                activityTimes = activityTimes,
+                currentStateLabel = currentStateLabel
+            )
 
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "$currentMinutes",
-                                style = MaterialTheme.typography.displayMedium,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "MIN",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "${(progress * 100).toInt()}% del objetivo",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "Meta: $targetMinutes min",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            TotalAccumulatedTimeCard(activityTimes = activityTimes)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -497,6 +455,139 @@ fun MainScreen(
             }
         }
     }
+}
+
+@Composable
+fun ActivityDistributionCard(
+    activityTimes: Map<Int, Long>,
+    currentStateLabel: String
+) {
+    val restSeconds = activityTimes[0] ?: 0L
+    val walkSeconds = activityTimes[1] ?: 0L
+    val runSeconds = activityTimes[2] ?: 0L
+    val playSeconds = activityTimes[3] ?: 0L
+    val totalSeconds = (restSeconds + walkSeconds + runSeconds + playSeconds).coerceAtLeast(1L)
+
+    val segments = listOf(
+        restSeconds to Color(0xFF9E9E9E),
+        walkSeconds to Color(0xFF4CAF50),
+        runSeconds to Color(0xFFFFC107),
+        playSeconds to Color(0xFFFF5722)
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(32.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Distribución de Actividad",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Box(modifier = Modifier.size(240.dp), contentAlignment = Alignment.Center) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val stroke = 28.dp.toPx()
+                    val gapDegrees = 2f
+                    var startAngle = -90f
+
+                    segments.forEach { (seconds, color) ->
+                        val sweep = ((seconds.toFloat() / totalSeconds.toFloat()) * 360f - gapDegrees).coerceAtLeast(0f)
+                        if (sweep > 0f) {
+                            drawArc(
+                                color = color,
+                                startAngle = startAngle,
+                                sweepAngle = sweep,
+                                useCenter = false,
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
+                            )
+                        }
+                        startAngle += (sweep + gapDegrees)
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = currentStateLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "ESTADO ACTUAL",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TotalAccumulatedTimeCard(activityTimes: Map<Int, Long>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(32.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Tiempo Total Acumulado",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            TimeLegendRow(label = "Reposo", color = Color(0xFF9E9E9E), seconds = activityTimes[0] ?: 0L)
+            TimeLegendRow(label = "Caminando", color = Color(0xFF4CAF50), seconds = activityTimes[1] ?: 0L)
+            TimeLegendRow(label = "Corriendo", color = Color(0xFFFFC107), seconds = activityTimes[2] ?: 0L)
+            TimeLegendRow(label = "Jugando", color = Color(0xFFFF5722), seconds = activityTimes[3] ?: 0L)
+        }
+    }
+}
+
+@Composable
+fun TimeLegendRow(label: String, color: Color, seconds: Long) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(14.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(text = label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Text(
+            text = seconds.toElapsedTime(),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun Long.toElapsedTime(): String {
+    val minutes = TimeUnit.SECONDS.toMinutes(this)
+    val seconds = this % 60
+    return "${minutes}m ${seconds}s"
 }
 
 @Composable
