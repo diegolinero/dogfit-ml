@@ -172,6 +172,7 @@ class MainActivity : ComponentActivity() {
         val confidence = intent.getIntExtra("confidence", 0)
         val sensorTimeMs = intent.getLongExtra("sensor_time_ms", -1L)
         val stepsTotal = intent.getIntExtra("steps_total", 0)
+        val battery = intent.getIntExtra("battery_percent", viewModel.getBatteryValue() ?: 0)
 
         if (sensorTimeMs >= 0L) {
             viewModel.onBleSample(activity, confidence, sensorTimeMs)
@@ -180,6 +181,7 @@ class MainActivity : ComponentActivity() {
         }
 
         viewModel.updateStepsFromBle(stepsTotal)
+        viewModel.updateBattery(battery)
     }
 
     private fun ensureBleReadyAndStartService() {

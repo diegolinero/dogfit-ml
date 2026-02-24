@@ -42,8 +42,8 @@ class DogFitBleService : Service() {
 
     private var bleEstimatedStepsTotal = 0
 
-    // Record = 10 bytes
-    private val REC_BYTES = 10
+    // Record = 11 bytes
+    private val REC_BYTES = 11
 
     // Reassembly buffer
     private val rxBuffer = ByteArray(8192)
@@ -427,7 +427,8 @@ class DogFitBleService : Service() {
             val tMs = readUInt32LE(rxBuffer, offset + 0)
             val label = rxBuffer[offset + 4].toInt() and 0xFF
             val conf = rxBuffer[offset + 5].toInt() and 0xFF
-            val seq = readUInt32LE(rxBuffer, offset + 6)
+            val bat = rxBuffer[offset + 6].toInt() and 0xFF
+            val seq = readUInt32LE(rxBuffer, offset + 7)
 
             lastSeqProcessed = seq
             processedAny = true
@@ -438,6 +439,7 @@ class DogFitBleService : Service() {
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
                 putExtra("activity_label", label)
                 putExtra("confidence", conf)
+                putExtra("battery_percent", bat)
                 putExtra("sequence", seq)
                 putExtra("sensor_time_ms", tMs)
                 putExtra("steps_total", bleEstimatedStepsTotal)
