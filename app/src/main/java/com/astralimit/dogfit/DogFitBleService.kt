@@ -18,7 +18,9 @@ class DogFitBleService : Service() {
     companion object {
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
+        private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
         private const val BLE_EXTRA_CONNECTED = "connected"
+        private const val BLE_EXTRA_BATTERY_PERCENT = "battery_percent"
     }
 
     private val TAG = "DogFitBleService"
@@ -30,12 +32,17 @@ class DogFitBleService : Service() {
     private val SERVICE_UUID = UUID.fromString("0000ABCD-0000-1000-8000-00805F9B34FB")
     private val RESULT_CHAR_UUID = UUID.fromString("0000ABCF-0000-1000-8000-00805F9B34FB")
     private val ACK_CHAR_UUID = UUID.fromString("0000ABD0-0000-1000-8000-00805F9B34FB")
-    private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    private val BATTERY_SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB")
+    private val BATTERY_LEVEL_CHAR_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
+    private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
     private var resultChar: BluetoothGattCharacteristic? = null
     private var ackChar: BluetoothGattCharacteristic? = null
+    private var batteryLevelChar: BluetoothGattCharacteristic? = null
     private var notificationsEnabled = false
     private var connectInProgress = false
+    private var batteryMonitoringInitialized = false
+    private var batteryInitialReadDone = false
 
     private var bleEstimatedStepsTotal = 0
 
@@ -206,6 +213,9 @@ class DogFitBleService : Service() {
         notificationsEnabled = false
         resultChar = null
         ackChar = null
+        batteryLevelChar = null
+        batteryMonitoringInitialized = false
+        batteryInitialReadDone = false
         rxLen = 0
 
         if (broadcastDisconnected) {
@@ -314,6 +324,9 @@ class DogFitBleService : Service() {
                 lastAckSentAtMs = 0
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
+                batteryMonitoringInitialized = false
+                batteryInitialReadDone = false
+                batteryLevelChar = null
 
                 sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
@@ -370,22 +383,46 @@ class DogFitBleService : Service() {
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid != RESULT_CHAR_UUID) return
-            onResultNotify(characteristic.value ?: ByteArray(0))
+            when (characteristic.uuid) {
+                RESULT_CHAR_UUID -> onResultNotify(characteristic.value ?: ByteArray(0))
+                BATTERY_LEVEL_CHAR_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
+            }
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (descriptor.characteristic?.uuid == RESULT_CHAR_UUID) {
-                Log.i(TAG, "CCCD write status=$status")
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    Log.w(TAG, "CCCD write con status no exitoso; habilitando fallback")
+            when (descriptor.characteristic?.uuid) {
+                RESULT_CHAR_UUID -> {
+                    Log.i(TAG, "CCCD write RESULT status=$status")
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        Log.w(TAG, "CCCD RESULT con status no exitoso; habilitando fallback")
+                    }
+                    finalizeBleSetup(gatt, "descriptor-write")
                 }
-                notificationsEnabled = true
-                connectInProgress = false
-                cancelConnectTimeout()
-                Log.i(TAG, "notificationsEnabled set to true")
-                maybeSendAck(force = true)
+                BATTERY_LEVEL_CHAR_UUID -> {
+                    Log.i(TAG, "CCCD write BATTERY status=$status")
+                    triggerBatteryLevelRead(gatt, "battery-cccd-write")
+                }
             }
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            if (characteristic.uuid != BATTERY_LEVEL_CHAR_UUID) return
+            onBatteryLevelRead(value, status, "api33")
+        }
+
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (characteristic.uuid != BATTERY_LEVEL_CHAR_UUID) return
+            onBatteryLevelRead(characteristic.value ?: ByteArray(0), status, "legacy")
         }
 
         override fun onCharacteristicChanged(
@@ -393,8 +430,10 @@ class DogFitBleService : Service() {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            if (characteristic.uuid != RESULT_CHAR_UUID) return
-            onResultNotify(value)
+            when (characteristic.uuid) {
+                RESULT_CHAR_UUID -> onResultNotify(value)
+                BATTERY_LEVEL_CHAR_UUID -> onBatteryLevelUpdate(value, "notify-api33")
+            }
         }
     }
 
@@ -468,20 +507,101 @@ class DogFitBleService : Service() {
             Log.i(TAG, "write CCCD launched=$writeOk")
             if (!writeOk) {
                 Log.w(TAG, "writeDescriptor devolvió false; usando fallback y continuando")
-                notificationsEnabled = true
-                connectInProgress = false
-                cancelConnectTimeout()
-                Log.i(TAG, "notificationsEnabled set to true")
-                maybeSendAck(force = true)
+                finalizeBleSetup(gatt, "descriptor-write-fallback")
             }
         } else {
             Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado; usando fallback y continuando")
-            notificationsEnabled = true
-            connectInProgress = false
-            cancelConnectTimeout()
-            Log.i(TAG, "notificationsEnabled set to true")
-            maybeSendAck(force = true)
+            finalizeBleSetup(gatt, "descriptor-missing-fallback")
         }
+    }
+
+    private fun finalizeBleSetup(gatt: BluetoothGatt, source: String) {
+        notificationsEnabled = true
+        connectInProgress = false
+        cancelConnectTimeout()
+        Log.i(TAG, "notificationsEnabled set to true ($source)")
+        maybeSendAck(force = true)
+        initializeBatteryMonitoring(gatt, source)
+    }
+
+    private fun initializeBatteryMonitoring(gatt: BluetoothGatt, source: String) {
+        if (batteryMonitoringInitialized) {
+            Log.d(TAG, "Battery monitoring ya inicializado; omitiendo ($source)")
+            return
+        }
+
+        val batteryService = gatt.getService(BATTERY_SERVICE_UUID)
+        if (batteryService == null) {
+            Log.i(TAG, "BAS 0x180F no encontrado ($source)")
+            batteryMonitoringInitialized = true
+            return
+        }
+
+        val batteryChar = batteryService.getCharacteristic(BATTERY_LEVEL_CHAR_UUID)
+        if (batteryChar == null) {
+            Log.i(TAG, "Battery Level 0x2A19 no encontrado ($source)")
+            batteryMonitoringInitialized = true
+            return
+        }
+
+        batteryLevelChar = batteryChar
+        batteryMonitoringInitialized = true
+
+        val notificationsEnabledForBattery = gatt.setCharacteristicNotification(batteryChar, true)
+        Log.i(TAG, "setCharacteristicNotification(BATTERY) ok=$notificationsEnabledForBattery")
+
+        val batteryCccd = batteryChar.getDescriptor(CLIENT_CONFIG_UUID)
+        if (batteryCccd != null) {
+            batteryCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            val cccdWriteLaunched = gatt.writeDescriptor(batteryCccd)
+            Log.i(TAG, "write CCCD BATTERY launched=$cccdWriteLaunched")
+            if (!cccdWriteLaunched) {
+                triggerBatteryLevelRead(gatt, "$source-cccd-battery-fallback")
+            }
+        } else {
+            Log.i(TAG, "CCCD de Battery Level no encontrado; solo lectura puntual")
+            triggerBatteryLevelRead(gatt, "$source-no-battery-cccd")
+        }
+    }
+
+    private fun triggerBatteryLevelRead(gatt: BluetoothGatt, source: String) {
+        val batteryChar = batteryLevelChar ?: run {
+            Log.d(TAG, "No hay batteryLevelChar para lectura ($source)")
+            return
+        }
+        if (batteryInitialReadDone) {
+            Log.d(TAG, "Lectura inicial BAS ya realizada; omitiendo ($source)")
+            return
+        }
+
+        @Suppress("DEPRECATION")
+        val readStarted = gatt.readCharacteristic(batteryChar)
+        Log.i(TAG, "Lectura inicial Battery Level lanzada=$readStarted ($source)")
+        if (readStarted) {
+            batteryInitialReadDone = true
+        }
+    }
+
+    private fun onBatteryLevelRead(value: ByteArray, status: Int, apiVariant: String) {
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            Log.w(TAG, "Lectura Battery Level falló status=$status api=$apiVariant")
+            return
+        }
+        onBatteryLevelUpdate(value, "read-$apiVariant")
+    }
+
+    private fun onBatteryLevelUpdate(value: ByteArray, source: String) {
+        if (value.isEmpty()) {
+            Log.w(TAG, "Battery Level vacío source=$source")
+            return
+        }
+
+        val batteryPercent = (value[0].toInt() and 0xFF).coerceIn(0, 100)
+        Log.i(TAG, "Battery Level leído desde BAS: $batteryPercent% (source=$source)")
+
+        sendInternalBroadcast(Intent(BLE_ACTION_BATTERY).apply {
+            putExtra(BLE_EXTRA_BATTERY_PERCENT, batteryPercent)
+        })
     }
 
     // =====================================================
