@@ -364,17 +364,7 @@ fun MainScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Speed,
                     label = "Estado",
-                    value = if (!bleConnected) {
-                        "Desconectado"
-                    } else {
-                        when (activityValue) {
-                            0 -> "Reposo"
-                            1 -> "Caminando"
-                            2 -> "Corriendo"
-                            3 -> "Jugando"
-                            else -> "Conectado"
-                        }
-                    },
+                    value = if (bleConnected) "Conectado" else "Desconectado",
                     color = MaterialTheme.colorScheme.secondaryContainer
                 )
 
