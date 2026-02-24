@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
+        private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
         private const val BLE_EXTRA_CONNECTED = "connected"
     }
 
@@ -82,6 +83,13 @@ class MainActivity : ComponentActivity() {
                 BLE_ACTION_STATUS -> {
                     val connected = intent.getBooleanExtra(BLE_EXTRA_CONNECTED, false)
                     viewModel.updateBleConnection(connected)
+                }
+
+                BLE_ACTION_BATTERY -> {
+                    val batteryRaw = intent.getIntExtra("battery_percent", -1)
+                    val battery = batteryRaw.takeIf { it in 0..100 }
+                    Log.d(TAG, "BLE batería BAS: raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
+                    viewModel.updateBattery(battery)
                 }
 
                 BLE_ACTION_NEW_DATA -> {
@@ -279,6 +287,7 @@ class MainActivity : ComponentActivity() {
         val filter = IntentFilter().apply {
             addAction(BLE_ACTION_NEW_DATA)
             addAction(BLE_ACTION_STATUS)
+            addAction(BLE_ACTION_BATTERY)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
