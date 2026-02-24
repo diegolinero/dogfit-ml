@@ -488,7 +488,7 @@ fun ActivityDistributionCard(
         ) {
             Text(
                 text = "Distribución de Actividad",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
 
@@ -518,13 +518,13 @@ fun ActivityDistributionCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = currentStateLabel,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
                         text = "ESTADO ACTUAL",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -549,7 +549,7 @@ fun TotalAccumulatedTimeCard(activityTimes: Map<Int, Long>) {
         ) {
             Text(
                 text = "Tiempo Total Acumulado",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -575,10 +575,10 @@ fun TimeLegendRow(label: String, color: Color, seconds: Long) {
                 .background(color)
         )
         Spacer(modifier = Modifier.width(10.dp))
-        Text(text = label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Text(text = label, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         Text(
             text = seconds.toElapsedTime(),
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
     }
