@@ -85,6 +85,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 BLE_ACTION_NEW_DATA -> {
+                    // Si recibimos datos del collar, forzamos estado conectado en UI.
+                    // Esto evita quedar en "desconectado" cuando el broadcast de estado
+                    // se emitió antes de registrar el receiver de la Activity.
+                    viewModel.updateBleConnection(true)
+
                     // Firmware (binario -> extras)
                     if (intent.hasExtra("activity_label")) {
                         parseFirmwarePayload(intent)
@@ -175,8 +180,6 @@ class MainActivity : ComponentActivity() {
         )
 
         val stepsTotal = intent.getIntExtra("steps_total", 0)
-        val battery = intent.getIntExtra("battery_percent", viewModel.getBatteryValue() ?: 0)
-
         val battery = intent.getIntExtra(
             "battery_percent",
             viewModel.getBatteryValue() ?: 0
