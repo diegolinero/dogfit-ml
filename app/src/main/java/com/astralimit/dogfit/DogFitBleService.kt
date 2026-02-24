@@ -8,8 +8,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.*
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.util.*
 
@@ -29,7 +29,7 @@ class DogFitBleService : Service() {
     // Firmware UUIDs
     private val SERVICE_UUID = UUID.fromString("0000ABCD-0000-1000-8000-00805F9B34FB")
     private val RESULT_CHAR_UUID = UUID.fromString("0000ABCF-0000-1000-8000-00805F9B34FB")
-    private val ACK_CHAR_UUID    = UUID.fromString("0000ABD0-0000-1000-8000-00805F9B34FB")
+    private val ACK_CHAR_UUID = UUID.fromString("0000ABD0-0000-1000-8000-00805F9B34FB")
     private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var resultChar: BluetoothGattCharacteristic? = null
@@ -55,10 +55,26 @@ class DogFitBleService : Service() {
     // Scan state
     private var scanning = false
     private val scanTimeoutMs = 15_000L
+    private val connectTimeoutMs = 12_000L
+    private val reconnectDelayMs = 1_000L
     private val handler = Handler(Looper.getMainLooper())
     private val stopScanRunnable = Runnable {
         stopScanning()
-        handler.postDelayed({ startScanning() }, 1000)
+        scheduleScanRestart(reconnectDelayMs)
+    }
+    private val connectTimeoutRunnable = Runnable {
+        if (notificationsEnabled) {
+            Log.d(TAG, "Connect timeout ignorado porque notificationsEnabled=true")
+            return@Runnable
+        }
+        Log.e(TAG, "Connect timeout fired (${connectTimeoutMs}ms) sin conexión completamente lista")
+        cleanupGattAndState(
+            reason = "connect-timeout",
+            gatt = bluetoothGatt,
+            broadcastDisconnected = true,
+            restartScan = true,
+            delayMs = reconnectDelayMs
+        )
     }
 
     override fun onCreate() {
@@ -84,18 +100,19 @@ class DogFitBleService : Service() {
     // SCAN (SIN filtro por UUID) + filtro manual
     // =====================================================
     private fun startScanning() {
+        Log.d(TAG, "startScanning() called. scanning=$scanning connectInProgress=$connectInProgress gattNull=${bluetoothGatt == null}")
         if (scanning) return
 
         if (!hasBlePermissions()) {
             Log.e(TAG, "Permisos BLE faltantes antes de escanear/conectar")
-            handler.postDelayed({ startScanning() }, 2000)
+            scheduleScanRestart(2000)
             return
         }
 
         val adapter = bluetoothAdapter ?: return
         if (!adapter.isEnabled) {
             Log.e(TAG, "Bluetooth apagado en startScanning; reintentando")
-            handler.postDelayed({ startScanning() }, 2000)
+            scheduleScanRestart(2000)
             return
         }
         val scanner = adapter.bluetoothLeScanner ?: return
@@ -117,21 +134,90 @@ class DogFitBleService : Service() {
         } catch (se: SecurityException) {
             Log.e(TAG, "startScan SecurityException (permisos)", se)
             scanning = false
-            handler.postDelayed({ startScanning() }, 2000)
+            scheduleScanRestart(2000)
         } catch (t: Throwable) {
             Log.e(TAG, "startScan error inesperado", t)
             scanning = false
-            handler.postDelayed({ startScanning() }, 2000)
+            scheduleScanRestart(2000)
         }
     }
 
     private fun stopScanning() {
         if (!scanning) return
         val scanner = bluetoothAdapter?.bluetoothLeScanner
-        try { scanner?.stopScan(scanCallback) } catch (_: Throwable) {}
+        try {
+            scanner?.stopScan(scanCallback)
+        } catch (_: Throwable) {
+        }
         scanning = false
         handler.removeCallbacks(stopScanRunnable)
         Log.d(TAG, "Scan detenido")
+    }
+
+    private fun scheduleScanRestart(delayMs: Long) {
+        Log.i(TAG, "restarting scan in ${delayMs}ms")
+        handler.postDelayed({ startScanning() }, delayMs)
+    }
+
+    private fun startConnectTimeout() {
+        handler.removeCallbacks(connectTimeoutRunnable)
+        handler.postDelayed(connectTimeoutRunnable, connectTimeoutMs)
+        Log.d(TAG, "Connect timeout watchdog iniciado (${connectTimeoutMs}ms)")
+    }
+
+    private fun cancelConnectTimeout() {
+        handler.removeCallbacks(connectTimeoutRunnable)
+    }
+
+    private fun cleanupGattAndState(
+        reason: String,
+        gatt: BluetoothGatt?,
+        broadcastDisconnected: Boolean,
+        restartScan: Boolean,
+        delayMs: Long = reconnectDelayMs
+    ) {
+        Log.w(TAG, "cleanupGattAndState reason=$reason broadcastDisconnected=$broadcastDisconnected restartScan=$restartScan")
+        cancelConnectTimeout()
+
+        val currentGatt = bluetoothGatt
+        if (gatt != null) {
+            try {
+                gatt.disconnect()
+            } catch (_: Throwable) {
+            }
+            try {
+                gatt.close()
+            } catch (_: Throwable) {
+            }
+        }
+        if (currentGatt != null && currentGatt !== gatt) {
+            try {
+                currentGatt.disconnect()
+            } catch (_: Throwable) {
+            }
+            try {
+                currentGatt.close()
+            } catch (_: Throwable) {
+            }
+        }
+
+        bluetoothGatt = null
+        connectInProgress = false
+        notificationsEnabled = false
+        resultChar = null
+        ackChar = null
+        rxLen = 0
+
+        if (broadcastDisconnected) {
+            sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
+                putExtra(BLE_EXTRA_CONNECTED, false)
+            })
+        }
+
+        if (restartScan) {
+            stopScanning()
+            scheduleScanRestart(delayMs)
+        }
     }
 
     private fun scanRecordHasService(result: ScanResult, uuid: UUID): Boolean {
@@ -158,25 +244,44 @@ class DogFitBleService : Service() {
                 return
             }
 
-            Log.i(TAG, "Candidato elegido: name=$name addr=${result.device.address} rssi=${result.rssi}")
+            Log.i(TAG, "candidate chosen: name=$name addr=${result.device.address} rssi=${result.rssi}")
 
             stopScanning()
             connectInProgress = true
-            Log.i(TAG, "connectGatt llamado (TRANSPORT_LE)")
+            notificationsEnabled = false
 
-            bluetoothGatt = result.device.connectGatt(
-                this@DogFitBleService,
-                false,
-                gattCallback,
-                BluetoothDevice.TRANSPORT_LE
-            )
+            try {
+                Log.i(TAG, "connectGatt started (TRANSPORT_LE)")
+                val gatt = result.device.connectGatt(
+                    this@DogFitBleService,
+                    false,
+                    gattCallback,
+                    BluetoothDevice.TRANSPORT_LE
+                )
+                if (gatt == null) {
+                    Log.e(TAG, "connectGatt devolvió null")
+                    connectInProgress = false
+                    notificationsEnabled = false
+                    bluetoothGatt = null
+                    scheduleScanRestart(reconnectDelayMs)
+                    return
+                }
+                bluetoothGatt = gatt
+                startConnectTimeout()
+            } catch (t: Throwable) {
+                Log.e(TAG, "connectGatt lanzó excepción", t)
+                connectInProgress = false
+                notificationsEnabled = false
+                bluetoothGatt = null
+                scheduleScanRestart(reconnectDelayMs)
+            }
         }
 
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan failed: $errorCode")
             scanning = false
             handler.removeCallbacks(stopScanRunnable)
-            handler.postDelayed({ startScanning() }, 2000)
+            scheduleScanRestart(2000)
         }
     }
 
@@ -187,9 +292,21 @@ class DogFitBleService : Service() {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             Log.i(TAG, "onConnectionStateChange status=$status newState=$newState")
+
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Fallo GATT por status no exitoso: status=$status")
+                cleanupGattAndState(
+                    reason = "connection-state-failure-status-$status",
+                    gatt = gatt,
+                    broadcastDisconnected = true,
+                    restartScan = true,
+                    delayMs = reconnectDelayMs
+                )
+                return
+            }
+
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                Log.i(TAG, "GATT Conectado. Descubriendo servicios... status=$status")
-                connectInProgress = false
+                Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
 
                 rxLen = 0
                 lastSeqProcessed = -1L
@@ -202,35 +319,45 @@ class DogFitBleService : Service() {
                     putExtra(BLE_EXTRA_CONNECTED, true)
                 })
 
-                try { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) } catch (_: Throwable) {}
+                try {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                } catch (_: Throwable) {
+                }
                 gatt.discoverServices()
+                return
+            }
 
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.e(TAG, "GATT Desconectado. status=$status. Reintentando...")
-                connectInProgress = false
-
-                sendBroadcast(Intent(BLE_ACTION_STATUS).apply {
-                    putExtra(BLE_EXTRA_CONNECTED, false)
-                })
-
-                resultChar = null
-                ackChar = null
-                notificationsEnabled = false
-                rxLen = 0
-
-                try { gatt.close() } catch (_: Throwable) {}
-                handler.postDelayed({ startScanning() }, 1500)
+                cleanupGattAndState(
+                    reason = "connection-state-disconnected",
+                    gatt = gatt,
+                    broadcastDisconnected = true,
+                    restartScan = true,
+                    delayMs = reconnectDelayMs
+                )
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            Log.i(TAG, "Servicios descubiertos. status=$status. Solicitando MTU...")
+            Log.i(TAG, "onServicesDiscovered status=$status")
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "discoverServices status no exitoso: $status")
-                setupCharsAndEnableNotifications(gatt, "servicesDiscovered-nonSuccess")
+                cleanupGattAndState(
+                    reason = "services-discovered-failure-$status",
+                    gatt = gatt,
+                    broadcastDisconnected = true,
+                    restartScan = true,
+                    delayMs = reconnectDelayMs
+                )
                 return
             }
-            val mtuRequested = try { gatt.requestMtu(256) } catch (_: Throwable) { false }
+
+            val mtuRequested = try {
+                gatt.requestMtu(256)
+            } catch (_: Throwable) {
+                false
+            }
             if (!mtuRequested) {
                 Log.w(TAG, "requestMtu(256) falló, usando fallback")
                 setupCharsAndEnableNotifications(gatt, "requestMtu-fallback")
@@ -238,7 +365,7 @@ class DogFitBleService : Service() {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            Log.i(TAG, "MTU listo: $mtu. status=$status. Configurando...")
+            Log.i(TAG, "onMtuChanged mtu=$mtu status=$status")
             setupCharsAndEnableNotifications(gatt, "onMtuChanged")
         }
 
@@ -250,12 +377,22 @@ class DogFitBleService : Service() {
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.characteristic?.uuid == RESULT_CHAR_UUID) {
                 Log.i(TAG, "CCCD write status=$status")
-                notificationsEnabled = status == BluetoothGatt.GATT_SUCCESS
-                if (notificationsEnabled) maybeSendAck(force = true)
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "CCCD write con status no exitoso; habilitando fallback")
+                }
+                notificationsEnabled = true
+                connectInProgress = false
+                cancelConnectTimeout()
+                Log.i(TAG, "notificationsEnabled set to true")
+                maybeSendAck(force = true)
             }
         }
 
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
             if (characteristic.uuid != RESULT_CHAR_UUID) return
             onResultNotify(value)
         }
@@ -283,6 +420,13 @@ class DogFitBleService : Service() {
         Log.i(TAG, "setupChars source=$source serviceNull=${service == null}")
         if (service == null) {
             Log.e(TAG, "Servicio ABCD no encontrado. (¿firmware correcto?)")
+            cleanupGattAndState(
+                reason = "service-not-found-$source",
+                gatt = gatt,
+                broadcastDisconnected = true,
+                restartScan = true,
+                delayMs = reconnectDelayMs
+            )
             return
         }
 
@@ -293,6 +437,13 @@ class DogFitBleService : Service() {
 
         if (resultChar == null) {
             Log.e(TAG, "Característica ABCF no encontrada")
+            cleanupGattAndState(
+                reason = "result-char-not-found-$source",
+                gatt = gatt,
+                broadcastDisconnected = true,
+                restartScan = true,
+                delayMs = reconnectDelayMs
+            )
             return
         }
 
@@ -315,9 +466,21 @@ class DogFitBleService : Service() {
             descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
             val writeOk = gatt.writeDescriptor(descriptor)
             Log.i(TAG, "write CCCD launched=$writeOk")
+            if (!writeOk) {
+                Log.w(TAG, "writeDescriptor devolvió false; usando fallback y continuando")
+                notificationsEnabled = true
+                connectInProgress = false
+                cancelConnectTimeout()
+                Log.i(TAG, "notificationsEnabled set to true")
+                maybeSendAck(force = true)
+            }
         } else {
-            Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado")
+            Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado; usando fallback y continuando")
             notificationsEnabled = true
+            connectInProgress = false
+            cancelConnectTimeout()
+            Log.i(TAG, "notificationsEnabled set to true")
+            maybeSendAck(force = true)
         }
     }
 
@@ -391,9 +554,9 @@ class DogFitBleService : Service() {
 
         val now = SystemClock.elapsedRealtime()
         val shouldSend = force || (
-                lastSeqProcessed != lastAckSent &&
-                        (now - lastAckSentAtMs) >= ackMinIntervalMs
-                )
+            lastSeqProcessed != lastAckSent &&
+                (now - lastAckSentAtMs) >= ackMinIntervalMs
+            )
         if (!shouldSend) return
 
         val ack = ByteArray(4)
