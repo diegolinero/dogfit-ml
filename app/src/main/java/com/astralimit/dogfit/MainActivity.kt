@@ -138,15 +138,19 @@ class MainActivity : ComponentActivity() {
      */
     private fun parsear(jsonString: String) {
         try {
+            Log.d(TAG, "BLE paquete completo (legacy): $jsonString")
             val json = JSONObject(jsonString)
             val activity = json.optInt("act", viewModel.getActivityValue() ?: 0)
             val steps = json.optInt("stp", 0)
+            val batteryRaw = json.optInt("bat", -1)
+            val battery = batteryRaw.takeIf { it in 1..100 }
 
             viewModel.updateActivity(activity)
             viewModel.updateStepsFromBle(steps)
 
             if (json.has("bat")) {
-                viewModel.updateBattery(json.optInt("bat", viewModel.getBatteryValue() ?: 0))
+                Log.d(TAG, "BLE batería parseada (legacy): raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
+                viewModel.updateBattery(battery)
             }
 
             if (json.has("lat") && json.has("lng")) {
@@ -182,10 +186,15 @@ class MainActivity : ComponentActivity() {
         val stepsTotal = intent.getIntExtra("steps_total", 0)
         val confidence = intent.getIntExtra("confidence", 0)
         val sensorTimeMs = intent.getLongExtra("sensor_time_ms", 0L)
-        val battery = intent.getIntExtra(
-            "battery_percent",
-            viewModel.getBatteryValue() ?: 0
+        val batteryRaw = intent.getIntExtra("battery_percent", -1)
+        val battery = batteryRaw.takeIf { it in 1..100 }
+        val sequence = intent.getLongExtra("sequence", -1L)
+
+        Log.d(
+            TAG,
+            "BLE paquete completo (firmware): act=$activity conf=$confidence bat_raw=$batteryRaw seq=$sequence sensor_time_ms=$sensorTimeMs steps_total=$stepsTotal"
         )
+        Log.d(TAG, "BLE batería parseada (firmware): raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
 
         if (sensorTimeMs > 0L) {
             viewModel.onBleSample(activity, confidence, sensorTimeMs)

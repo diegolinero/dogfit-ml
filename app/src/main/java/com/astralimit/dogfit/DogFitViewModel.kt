@@ -86,11 +86,12 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val activityMsToday = LongArray(4) { 0L } // 0..3
 
     private val recentLabels = ArrayDeque<Int>()
-    private val recentMax = 12
+    private val recentMax = 8
     private var stableLabel = 0
-    private var lastIncomingLabel = -1
-    private var incomingStreak = 0
+    private var pendingStableLabel: Int? = null
+    private var pendingSinceMs: Long = 0L
     private val confThreshold = 60
+    private val stableSwitchDelayMs = 1200L
 
     // Para saber si hoy ya tenemos stream BLE y no usar count*5
     private var hasBleTimingForToday = false
@@ -183,7 +184,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             val prev = lastSensorMs
             if (prev == null) {
                 lastSensorMs = sensorTimeMs
-                val stable = pushAndGetStableLabel(cleaned)
+                val stable = pushAndGetStableLabel(cleaned, sensorTimeMs)
                 updateActivity(stable)
                 return@launch
             }
@@ -205,7 +206,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             if (cleaned in 0..3) activityMsToday[cleaned] += dt
             if (cleaned in 1..3) activeMsToday += dt
 
-            val stable = pushAndGetStableLabel(cleaned)
+            val stable = pushAndGetStableLabel(cleaned, sensorTimeMs)
             updateActivity(stable)
 
             // actualiza dailyStats usando tiempo real
@@ -213,18 +214,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun pushAndGetStableLabel(label: Int): Int {
-        if (label == lastIncomingLabel) {
-            incomingStreak += 1
-        } else {
-            lastIncomingLabel = label
-            incomingStreak = 1
-        }
-
-        if (incomingStreak >= 3 && label != stableLabel) {
-            stableLabel = label
-        }
-
+    private fun pushAndGetStableLabel(label: Int, sensorTimeMs: Long): Int {
         recentLabels.addLast(label)
         while (recentLabels.size > recentMax) recentLabels.removeFirst()
 
@@ -238,8 +228,21 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        if (bestLabel == stableLabel || bestCount >= (recentLabels.size * 2) / 3) {
+        val shouldSwitch = bestLabel != stableLabel && bestCount >= 2
+        if (!shouldSwitch) {
+            pendingStableLabel = null
+            return stableLabel
+        }
+
+        if (pendingStableLabel != bestLabel) {
+            pendingStableLabel = bestLabel
+            pendingSinceMs = sensorTimeMs
+            return stableLabel
+        }
+
+        if ((sensorTimeMs - pendingSinceMs) >= stableSwitchDelayMs) {
             stableLabel = bestLabel
+            pendingStableLabel = null
         }
 
         return stableLabel
@@ -266,18 +269,26 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun updateBattery(batteryValue: Int) {
+    fun updateBattery(batteryValue: Int?) {
         viewModelScope.launch {
-            _batteryValue.value = batteryValue
-            _batteryLiveData.value = batteryValue
-            _batteryLevel.value = "Batería: $batteryValue%"
+            val current = _batteryValue.value
+            val normalized = batteryValue?.coerceIn(1, 100) ?: current
 
-            if (batteryValue < 20) {
+            if (normalized == null) {
+                _batteryLevel.value = "Batería: --%"
+                return@launch
+            }
+
+            _batteryValue.value = normalized
+            _batteryLiveData.value = normalized
+            _batteryLevel.value = "Batería: $normalized%"
+
+            if (normalized < 20) {
                 addAlert(
                     DogAlert(
                         id = System.currentTimeMillis(),
                         type = AlertType.BATTERY_LOW,
-                        message = "Batería del dispositivo baja ($batteryValue%)",
+                        message = "Batería del dispositivo baja ($normalized%)",
                         severity = 2,
                         recommendedAction = "Recargar el dispositivo DogFit"
                     )
@@ -294,8 +305,8 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 lastSensorMs = null
                 recentLabels.clear()
                 stableLabel = 0
-                lastIncomingLabel = -1
-                incomingStreak = 0
+                pendingStableLabel = null
+                pendingSinceMs = 0L
             }
             Log.d("DogFitViewModel", "BLE conectado: $connected")
         }
