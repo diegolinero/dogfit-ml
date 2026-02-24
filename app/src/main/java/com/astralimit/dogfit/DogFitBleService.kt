@@ -32,22 +32,20 @@ class DogFitBleService : Service() {
     private val SERVICE_UUID = UUID.fromString("0000ABCD-0000-1000-8000-00805F9B34FB")
     private val RESULT_CHAR_UUID = UUID.fromString("0000ABCF-0000-1000-8000-00805F9B34FB")
     private val ACK_CHAR_UUID = UUID.fromString("0000ABD0-0000-1000-8000-00805F9B34FB")
-    private val BATTERY_SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB")
-    private val BATTERY_LEVEL_CHAR_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
+    private val BAS_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB")
+    private val BAT_LEVEL_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
     private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
     private var resultChar: BluetoothGattCharacteristic? = null
     private var ackChar: BluetoothGattCharacteristic? = null
-    private var batteryLevelChar: BluetoothGattCharacteristic? = null
+    private var batteryChar: BluetoothGattCharacteristic? = null
     private var notificationsEnabled = false
     private var connectInProgress = false
-    private var batteryMonitoringInitialized = false
-    private var batteryInitialReadDone = false
 
     private var bleEstimatedStepsTotal = 0
 
-    // ✅ Record = 11 bytes (t_ms 4 + label 1 + conf 1 + bat 1 + seq 4)
-    private val REC_BYTES = 11
+    // ✅ Record = 10 bytes (t_ms 4 + label 1 + conf 1 + seq 4)
+    private val REC_BYTES = 10
 
     // Reassembly buffer
     private val rxBuffer = ByteArray(8192)
@@ -213,9 +211,7 @@ class DogFitBleService : Service() {
         notificationsEnabled = false
         resultChar = null
         ackChar = null
-        batteryLevelChar = null
-        batteryMonitoringInitialized = false
-        batteryInitialReadDone = false
+        batteryChar = null
         rxLen = 0
 
         if (broadcastDisconnected) {
@@ -324,9 +320,7 @@ class DogFitBleService : Service() {
                 lastAckSentAtMs = 0
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
-                batteryMonitoringInitialized = false
-                batteryInitialReadDone = false
-                batteryLevelChar = null
+                batteryChar = null
 
                 sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
@@ -385,7 +379,7 @@ class DogFitBleService : Service() {
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             when (characteristic.uuid) {
                 RESULT_CHAR_UUID -> onResultNotify(characteristic.value ?: ByteArray(0))
-                BATTERY_LEVEL_CHAR_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
+                BAT_LEVEL_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
             }
         }
 
@@ -398,9 +392,8 @@ class DogFitBleService : Service() {
                     }
                     finalizeBleSetup(gatt, "descriptor-write")
                 }
-                BATTERY_LEVEL_CHAR_UUID -> {
+                BAT_LEVEL_UUID -> {
                     Log.i(TAG, "CCCD write BATTERY status=$status")
-                    triggerBatteryLevelRead(gatt, "battery-cccd-write")
                 }
             }
         }
@@ -411,7 +404,7 @@ class DogFitBleService : Service() {
             value: ByteArray,
             status: Int
         ) {
-            if (characteristic.uuid != BATTERY_LEVEL_CHAR_UUID) return
+            if (characteristic.uuid != BAT_LEVEL_UUID) return
             onBatteryLevelRead(value, status, "api33")
         }
 
@@ -421,7 +414,7 @@ class DogFitBleService : Service() {
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            if (characteristic.uuid != BATTERY_LEVEL_CHAR_UUID) return
+            if (characteristic.uuid != BAT_LEVEL_UUID) return
             onBatteryLevelRead(characteristic.value ?: ByteArray(0), status, "legacy")
         }
 
@@ -432,7 +425,7 @@ class DogFitBleService : Service() {
         ) {
             when (characteristic.uuid) {
                 RESULT_CHAR_UUID -> onResultNotify(value)
-                BATTERY_LEVEL_CHAR_UUID -> onBatteryLevelUpdate(value, "notify-api33")
+                BAT_LEVEL_UUID -> onBatteryLevelUpdate(value, "notify-api33")
             }
         }
     }
@@ -521,64 +514,53 @@ class DogFitBleService : Service() {
         cancelConnectTimeout()
         Log.i(TAG, "notificationsEnabled set to true ($source)")
         maybeSendAck(force = true)
-        initializeBatteryMonitoring(gatt, source)
+        readBatteryLevel(gatt, "after-result-cccd-$source")
+        enableBatteryNotifications(gatt, "after-result-cccd-$source")
     }
 
-    private fun initializeBatteryMonitoring(gatt: BluetoothGatt, source: String) {
-        if (batteryMonitoringInitialized) {
-            Log.d(TAG, "Battery monitoring ya inicializado; omitiendo ($source)")
-            return
-        }
-
-        val batteryService = gatt.getService(BATTERY_SERVICE_UUID)
+    private fun readBatteryLevel(gatt: BluetoothGatt, source: String) {
+        val batteryService = gatt.getService(BAS_UUID)
         if (batteryService == null) {
             Log.i(TAG, "BAS 0x180F no encontrado ($source)")
-            batteryMonitoringInitialized = true
             return
         }
 
-        val batteryChar = batteryService.getCharacteristic(BATTERY_LEVEL_CHAR_UUID)
-        if (batteryChar == null) {
+        val batLevel = batteryService.getCharacteristic(BAT_LEVEL_UUID)
+        if (batLevel == null) {
             Log.i(TAG, "Battery Level 0x2A19 no encontrado ($source)")
-            batteryMonitoringInitialized = true
+            return
+        }
+        batteryChar = batLevel
+
+        @Suppress("DEPRECATION")
+        val readStarted = gatt.readCharacteristic(batLevel)
+        Log.i(TAG, "Lectura Battery Level lanzada=$readStarted ($source)")
+    }
+
+    private fun enableBatteryNotifications(gatt: BluetoothGatt, source: String) {
+        val batteryService = gatt.getService(BAS_UUID)
+        if (batteryService == null) {
+            Log.i(TAG, "BAS 0x180F no encontrado para notify ($source)")
             return
         }
 
-        batteryLevelChar = batteryChar
-        batteryMonitoringInitialized = true
+        val batLevel = batteryService.getCharacteristic(BAT_LEVEL_UUID)
+        if (batLevel == null) {
+            Log.i(TAG, "Battery Level 0x2A19 no encontrado para notify ($source)")
+            return
+        }
+        batteryChar = batLevel
 
-        val notificationsEnabledForBattery = gatt.setCharacteristicNotification(batteryChar, true)
+        val notificationsEnabledForBattery = gatt.setCharacteristicNotification(batLevel, true)
         Log.i(TAG, "setCharacteristicNotification(BATTERY) ok=$notificationsEnabledForBattery")
 
-        val batteryCccd = batteryChar.getDescriptor(CLIENT_CONFIG_UUID)
+        val batteryCccd = batLevel.getDescriptor(CLIENT_CONFIG_UUID)
         if (batteryCccd != null) {
             batteryCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
             val cccdWriteLaunched = gatt.writeDescriptor(batteryCccd)
             Log.i(TAG, "write CCCD BATTERY launched=$cccdWriteLaunched")
-            if (!cccdWriteLaunched) {
-                triggerBatteryLevelRead(gatt, "$source-cccd-battery-fallback")
-            }
         } else {
-            Log.i(TAG, "CCCD de Battery Level no encontrado; solo lectura puntual")
-            triggerBatteryLevelRead(gatt, "$source-no-battery-cccd")
-        }
-    }
-
-    private fun triggerBatteryLevelRead(gatt: BluetoothGatt, source: String) {
-        val batteryChar = batteryLevelChar ?: run {
-            Log.d(TAG, "No hay batteryLevelChar para lectura ($source)")
-            return
-        }
-        if (batteryInitialReadDone) {
-            Log.d(TAG, "Lectura inicial BAS ya realizada; omitiendo ($source)")
-            return
-        }
-
-        @Suppress("DEPRECATION")
-        val readStarted = gatt.readCharacteristic(batteryChar)
-        Log.i(TAG, "Lectura inicial Battery Level lanzada=$readStarted ($source)")
-        if (readStarted) {
-            batteryInitialReadDone = true
+            Log.i(TAG, "CCCD de Battery Level no encontrado; continuando ($source)")
         }
     }
 
@@ -601,11 +583,14 @@ class DogFitBleService : Service() {
 
         sendInternalBroadcast(Intent(BLE_ACTION_BATTERY).apply {
             putExtra(BLE_EXTRA_BATTERY_PERCENT, batteryPercent)
+            putExtra("data", JSONObject().apply {
+                put("bat", batteryPercent)
+            }.toString())
         })
     }
 
     // =====================================================
-    // NOTIFY parse 11B/record + ACK uint32
+    // NOTIFY parse 10B/record + ACK uint32
     // =====================================================
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
@@ -626,8 +611,7 @@ class DogFitBleService : Service() {
             val tMs = readUInt32LE(rxBuffer, offset + 0)
             val label = rxBuffer[offset + 4].toInt() and 0xFF
             val conf = rxBuffer[offset + 5].toInt() and 0xFF
-            val bat = rxBuffer[offset + 6].toInt() and 0xFF
-            val seq = readUInt32LE(rxBuffer, offset + 7)
+            val seq = readUInt32LE(rxBuffer, offset + 6)
 
             lastSeqProcessed = seq
             processedAny = true
@@ -638,7 +622,6 @@ class DogFitBleService : Service() {
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
                 putExtra("activity_label", label)
                 putExtra("confidence", conf)
-                putExtra("battery_percent", bat)
                 putExtra("sequence", seq)
                 putExtra("sensor_time_ms", tMs)
                 putExtra("steps_total", bleEstimatedStepsTotal)
@@ -647,7 +630,6 @@ class DogFitBleService : Service() {
                     put("act", label)
                     put("stp", bleEstimatedStepsTotal)
                     put("conf", conf)
-                    put("bat", bat)
                     put("seq", seq)
                     put("t_ms", tMs)
                 }.toString())
