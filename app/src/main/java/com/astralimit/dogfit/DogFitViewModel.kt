@@ -86,7 +86,10 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val activityMsToday = LongArray(4) { 0L } // 0..3
 
     private val recentLabels = ArrayDeque<Int>()
-    private val recentMax = 50 // ~1s @50Hz
+    private val recentMax = 12
+    private var stableLabel = 0
+    private var lastIncomingLabel = -1
+    private var incomingStreak = 0
     private val confThreshold = 60
 
     // Para saber si hoy ya tenemos stream BLE y no usar count*5
@@ -180,6 +183,8 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             val prev = lastSensorMs
             if (prev == null) {
                 lastSensorMs = sensorTimeMs
+                val stable = pushAndGetStableLabel(cleaned)
+                updateActivity(stable)
                 return@launch
             }
 
@@ -209,6 +214,17 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun pushAndGetStableLabel(label: Int): Int {
+        if (label == lastIncomingLabel) {
+            incomingStreak += 1
+        } else {
+            lastIncomingLabel = label
+            incomingStreak = 1
+        }
+
+        if (incomingStreak >= 3 && label != stableLabel) {
+            stableLabel = label
+        }
+
         recentLabels.addLast(label)
         while (recentLabels.size > recentMax) recentLabels.removeFirst()
 
@@ -221,7 +237,12 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 bestLabel = l
             }
         }
-        return bestLabel
+
+        if (bestLabel == stableLabel || bestCount >= (recentLabels.size * 2) / 3) {
+            stableLabel = bestLabel
+        }
+
+        return stableLabel
     }
 
     // =========================================================
@@ -272,6 +293,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 _activityValue.value = null
                 lastSensorMs = null
                 recentLabels.clear()
+                stableLabel = 0
+                lastIncomingLabel = -1
+                incomingStreak = 0
             }
             Log.d("DogFitViewModel", "BLE conectado: $connected")
         }
