@@ -342,9 +342,9 @@ class DogFitBleService : Service() {
         while (rxLen - offset >= REC_BYTES) {
             val tMs = readUInt32LE(rxBuffer, offset + 0)
             val label = rxBuffer[offset + 4].toInt() and 0xFF
-            val conf  = rxBuffer[offset + 5].toInt() and 0xFF
-            val bat   = rxBuffer[offset + 6].toInt() and 0xFF
-            val seq   = readUInt32LE(rxBuffer, offset + 7)
+            val conf = rxBuffer[offset + 5].toInt() and 0xFF
+            val bat = rxBuffer[offset + 6].toInt() and 0xFF
+            val seq = readUInt32LE(rxBuffer, offset + 7)
 
             lastSeqProcessed = seq
             processedAny = true
