@@ -66,6 +66,9 @@ class DogFitBleService : Service() {
     private val scanTimeoutMs = 15_000L
     private val connectTimeoutMs = 12_000L
     private val reconnectDelayMs = 1_000L
+    private val noDataTimeoutMs = 30_000L
+    private val noDataCheckIntervalMs = 10_000L
+    private var lastBlePayloadAtMs: Long = 0L
     private val handler = Handler(Looper.getMainLooper())
     private val stopScanRunnable = Runnable {
         stopScanning()
@@ -84,6 +87,26 @@ class DogFitBleService : Service() {
             restartScan = true,
             delayMs = reconnectDelayMs
         )
+    }
+    private val noDataWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (!notificationsEnabled || bluetoothGatt == null) return
+
+            val elapsed = SystemClock.elapsedRealtime() - lastBlePayloadAtMs
+            if (elapsed >= noDataTimeoutMs) {
+                Log.e(TAG, "No se recibieron datos BLE en ${elapsed}ms; reiniciando conexión")
+                cleanupGattAndState(
+                    reason = "no-data-timeout-${elapsed}ms",
+                    gatt = bluetoothGatt,
+                    broadcastDisconnected = true,
+                    restartScan = true,
+                    delayMs = reconnectDelayMs
+                )
+                return
+            }
+
+            handler.postDelayed(this, noDataCheckIntervalMs)
+        }
     }
 
     override fun onCreate() {
@@ -178,6 +201,15 @@ class DogFitBleService : Service() {
         handler.removeCallbacks(connectTimeoutRunnable)
     }
 
+    private fun startNoDataWatchdog() {
+        handler.removeCallbacks(noDataWatchdogRunnable)
+        handler.postDelayed(noDataWatchdogRunnable, noDataCheckIntervalMs)
+    }
+
+    private fun cancelNoDataWatchdog() {
+        handler.removeCallbacks(noDataWatchdogRunnable)
+    }
+
     private fun cleanupGattAndState(
         reason: String,
         gatt: BluetoothGatt?,
@@ -187,6 +219,7 @@ class DogFitBleService : Service() {
     ) {
         Log.w(TAG, "cleanupGattAndState reason=$reason broadcastDisconnected=$broadcastDisconnected restartScan=$restartScan")
         cancelConnectTimeout()
+        cancelNoDataWatchdog()
 
         val currentGatt = bluetoothGatt
         if (gatt != null) {
@@ -326,13 +359,10 @@ class DogFitBleService : Service() {
                 lastAckSentAtMs = 0
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
+                lastBlePayloadAtMs = SystemClock.elapsedRealtime()
                 batteryChar = null
                 liveChar = null
                 notifyQueue.clear()
-
-                sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
-                    putExtra(BLE_EXTRA_CONNECTED, true)
-                })
 
                 try {
                     gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
@@ -546,8 +576,13 @@ class DogFitBleService : Service() {
     private fun finalizeBleSetup(gatt: BluetoothGatt, source: String) {
         notificationsEnabled = true
         connectInProgress = false
+        lastBlePayloadAtMs = SystemClock.elapsedRealtime()
+        startNoDataWatchdog()
         cancelConnectTimeout()
         Log.i(TAG, "notificationsEnabled set to true ($source)")
+        sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
+            putExtra(BLE_EXTRA_CONNECTED, true)
+        })
         maybeSendAck(force = true)
         val batLevel = batteryChar
         if (batLevel == null) {
@@ -574,6 +609,8 @@ class DogFitBleService : Service() {
             return
         }
 
+        lastBlePayloadAtMs = SystemClock.elapsedRealtime()
+
         val batteryPercent = BlePacketParser.parseBattery(value).coerceIn(0, 100)
         Log.i(TAG, "Battery Level leído desde BAS: $batteryPercent% (source=$source)")
 
@@ -590,6 +627,7 @@ class DogFitBleService : Service() {
     // =====================================================
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
+        lastBlePayloadAtMs = SystemClock.elapsedRealtime()
         Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size}")
 
         if (rxLen + chunk.size > rxBuffer.size) {
@@ -648,6 +686,7 @@ class DogFitBleService : Service() {
 
     private fun onLiveNotify(value: ByteArray, source: String) {
         try {
+            lastBlePayloadAtMs = SystemClock.elapsedRealtime()
             val live = BlePacketParser.parseLive(value)
             Log.i(TAG, "received LIVE notify source=$source tMs=${live.tMs} label=${live.label} conf=${live.conf}")
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
