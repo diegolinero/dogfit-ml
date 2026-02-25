@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
             val activity = json.optInt("act", viewModel.getActivityValue() ?: 0)
             val steps = json.optInt("stp", 0)
             val batteryRaw = json.optInt("bat", -1)
-            val battery = batteryRaw.takeIf { it in 1..100 }
+            val battery = batteryRaw.takeIf { it in 0..100 }
 
             viewModel.updateActivity(activity)
             viewModel.updateStepsFromBle(steps)
@@ -195,12 +195,13 @@ class MainActivity : ComponentActivity() {
         val confidence = intent.getIntExtra("confidence", 0)
         val sensorTimeMs = intent.getLongExtra("sensor_time_ms", 0L)
         val batteryRaw = intent.getIntExtra("battery_percent", -1)
-        val battery = batteryRaw.takeIf { it in 1..100 }
+        val battery = batteryRaw.takeIf { it in 0..100 }
         val sequence = intent.getLongExtra("sequence", -1L)
+        val isLive = intent.getBooleanExtra("is_live", false)
 
         Log.d(
             TAG,
-            "BLE paquete completo (firmware): act=$activity conf=$confidence bat_raw=$batteryRaw seq=$sequence sensor_time_ms=$sensorTimeMs steps_total=$stepsTotal"
+            "BLE paquete completo (firmware): act=$activity conf=$confidence bat_raw=$batteryRaw seq=$sequence sensor_time_ms=$sensorTimeMs steps_total=$stepsTotal is_live=$isLive"
         )
         Log.d(TAG, "BLE batería parseada (firmware): raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
 
@@ -210,7 +211,9 @@ class MainActivity : ComponentActivity() {
             viewModel.updateActivity(activity)
         }
 
-        viewModel.updateStepsFromBle(stepsTotal)
+        if (intent.hasExtra("steps_total")) {
+            viewModel.updateStepsFromBle(stepsTotal)
+        }
         viewModel.updateBattery(battery)
     }
 

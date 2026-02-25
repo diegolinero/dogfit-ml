@@ -32,17 +32,21 @@ class DogFitBleService : Service() {
     private val SERVICE_UUID = UUID.fromString("0000ABCD-0000-1000-8000-00805F9B34FB")
     private val RESULT_CHAR_UUID = UUID.fromString("0000ABCF-0000-1000-8000-00805F9B34FB")
     private val ACK_CHAR_UUID = UUID.fromString("0000ABD0-0000-1000-8000-00805F9B34FB")
+    private val LIVE_CHAR_UUID = UUID.fromString("0000ABD1-0000-1000-8000-00805F9B34FB")
     private val BAS_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB")
     private val BAT_LEVEL_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
     private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
     private var resultChar: BluetoothGattCharacteristic? = null
     private var ackChar: BluetoothGattCharacteristic? = null
+    private var liveChar: BluetoothGattCharacteristic? = null
     private var batteryChar: BluetoothGattCharacteristic? = null
     private var notificationsEnabled = false
     private var connectInProgress = false
 
     private var bleEstimatedStepsTotal = 0
+
+    private val notifyQueue: ArrayDeque<BluetoothGattCharacteristic> = ArrayDeque()
 
     // ✅ Record = 10 bytes (t_ms 4 + label 1 + conf 1 + seq 4)
     private val REC_BYTES = 10
@@ -211,7 +215,9 @@ class DogFitBleService : Service() {
         notificationsEnabled = false
         resultChar = null
         ackChar = null
+        liveChar = null
         batteryChar = null
+        notifyQueue.clear()
         rxLen = 0
 
         if (broadcastDisconnected) {
@@ -321,6 +327,8 @@ class DogFitBleService : Service() {
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
                 batteryChar = null
+                liveChar = null
+                notifyQueue.clear()
 
                 sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
                     putExtra(BLE_EXTRA_CONNECTED, true)
@@ -360,6 +368,13 @@ class DogFitBleService : Service() {
                 return
             }
 
+            gatt.services.forEach { service ->
+                Log.i(TAG, "Service found uuid=${service.uuid} chars=${service.characteristics.size}")
+                service.characteristics.forEach { ch ->
+                    Log.i(TAG, " - Characteristic uuid=${ch.uuid} props=${ch.properties}")
+                }
+            }
+
             val mtuRequested = try {
                 gatt.requestMtu(256)
             } catch (_: Throwable) {
@@ -379,6 +394,7 @@ class DogFitBleService : Service() {
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             when (characteristic.uuid) {
                 RESULT_CHAR_UUID -> onResultNotify(characteristic.value ?: ByteArray(0))
+                LIVE_CHAR_UUID -> onLiveNotify(characteristic.value ?: ByteArray(0), "notify-legacy")
                 BAT_LEVEL_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
             }
         }
@@ -386,16 +402,14 @@ class DogFitBleService : Service() {
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             when (descriptor.characteristic?.uuid) {
                 RESULT_CHAR_UUID -> {
-                    Log.i(TAG, "CCCD write RESULT status=$status")
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
-                        Log.w(TAG, "CCCD RESULT con status no exitoso; habilitando fallback")
-                    }
-                    finalizeBleSetup(gatt, "descriptor-write")
+                    Log.i(TAG, "CCCD write success? status=$status for RES")
                 }
+                LIVE_CHAR_UUID -> Log.i(TAG, "CCCD write success? status=$status for LIVE")
                 BAT_LEVEL_UUID -> {
-                    Log.i(TAG, "CCCD write BATTERY status=$status")
+                    Log.i(TAG, "CCCD write success? status=$status for BATTERY")
                 }
             }
+            setupNextNotification(gatt, "descriptor-write")
         }
 
         override fun onCharacteristicRead(
@@ -425,6 +439,7 @@ class DogFitBleService : Service() {
         ) {
             when (characteristic.uuid) {
                 RESULT_CHAR_UUID -> onResultNotify(value)
+                LIVE_CHAR_UUID -> onLiveNotify(value, "notify-api33")
                 BAT_LEVEL_UUID -> onBatteryLevelUpdate(value, "notify-api33")
             }
         }
@@ -464,8 +479,12 @@ class DogFitBleService : Service() {
 
         resultChar = service.getCharacteristic(RESULT_CHAR_UUID)
         ackChar = service.getCharacteristic(ACK_CHAR_UUID)
+        liveChar = service.getCharacteristic(LIVE_CHAR_UUID)
 
-        Log.i(TAG, "resultChar null? ${resultChar == null} / ackChar null? ${ackChar == null}")
+        val basService = gatt.getService(BAS_UUID)
+        batteryChar = basService?.getCharacteristic(BAT_LEVEL_UUID)
+
+        Log.i(TAG, "resultChar null? ${resultChar == null} / ackChar null? ${ackChar == null} / liveChar null? ${liveChar == null} / batteryChar null? ${batteryChar == null}")
 
         if (resultChar == null) {
             Log.e(TAG, "Característica ABCF no encontrada")
@@ -485,26 +504,42 @@ class DogFitBleService : Service() {
             ackChar?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         }
 
-        enableNotifications(gatt, resultChar)
+        notifyQueue.clear()
+        resultChar?.let { notifyQueue.add(it) }
+        liveChar?.let { notifyQueue.add(it) }
+        batteryChar?.let { notifyQueue.add(it) }
+        setupNextNotification(gatt, "initial-setup")
     }
 
-    private fun enableNotifications(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?) {
-        if (characteristic == null) return
+    private fun setupNextNotification(gatt: BluetoothGatt, source: String) {
+        if (notifyQueue.isEmpty()) {
+            finalizeBleSetup(gatt, source)
+            return
+        }
+        val characteristic = notifyQueue.removeFirst()
+        val launched = enableNotify(gatt, characteristic)
+        if (!launched) {
+            Log.w(TAG, "No se pudo lanzar notify para ${characteristic.uuid}; continuando")
+            setupNextNotification(gatt, "$source-notify-failed")
+        }
+    }
+
+    private fun enableNotify(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic): Boolean {
         val setOk = gatt.setCharacteristicNotification(characteristic, true)
-        Log.i(TAG, "setCharacteristicNotification ok=$setOk")
+        Log.i(TAG, "setCharacteristicNotification(${characteristic.uuid}) ok=$setOk")
 
         val descriptor = characteristic.getDescriptor(CLIENT_CONFIG_UUID)
         if (descriptor != null) {
             descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
             val writeOk = gatt.writeDescriptor(descriptor)
-            Log.i(TAG, "write CCCD launched=$writeOk")
+            Log.i(TAG, "write CCCD ${characteristic.uuid} launched=$writeOk")
             if (!writeOk) {
-                Log.w(TAG, "writeDescriptor devolvió false; usando fallback y continuando")
-                finalizeBleSetup(gatt, "descriptor-write-fallback")
+                Log.w(TAG, "writeDescriptor devolvió false para ${characteristic.uuid}")
             }
+            return writeOk
         } else {
-            Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado; usando fallback y continuando")
-            finalizeBleSetup(gatt, "descriptor-missing-fallback")
+            Log.e(TAG, "Descriptor CCCD 0x2902 no encontrado para ${characteristic.uuid}")
+            return false
         }
     }
 
@@ -514,54 +549,15 @@ class DogFitBleService : Service() {
         cancelConnectTimeout()
         Log.i(TAG, "notificationsEnabled set to true ($source)")
         maybeSendAck(force = true)
-        readBatteryLevel(gatt, "after-result-cccd-$source")
-        enableBatteryNotifications(gatt, "after-result-cccd-$source")
-    }
-
-    private fun readBatteryLevel(gatt: BluetoothGatt, source: String) {
-        val batteryService = gatt.getService(BAS_UUID)
-        if (batteryService == null) {
-            Log.i(TAG, "BAS 0x180F no encontrado ($source)")
-            return
-        }
-
-        val batLevel = batteryService.getCharacteristic(BAT_LEVEL_UUID)
+        val batLevel = batteryChar
         if (batLevel == null) {
-            Log.i(TAG, "Battery Level 0x2A19 no encontrado ($source)")
+            Log.i(TAG, "Battery Level 0x2A19 no encontrado para lectura inicial ($source)")
             return
         }
-        batteryChar = batLevel
 
         @Suppress("DEPRECATION")
         val readStarted = gatt.readCharacteristic(batLevel)
         Log.i(TAG, "Lectura Battery Level lanzada=$readStarted ($source)")
-    }
-
-    private fun enableBatteryNotifications(gatt: BluetoothGatt, source: String) {
-        val batteryService = gatt.getService(BAS_UUID)
-        if (batteryService == null) {
-            Log.i(TAG, "BAS 0x180F no encontrado para notify ($source)")
-            return
-        }
-
-        val batLevel = batteryService.getCharacteristic(BAT_LEVEL_UUID)
-        if (batLevel == null) {
-            Log.i(TAG, "Battery Level 0x2A19 no encontrado para notify ($source)")
-            return
-        }
-        batteryChar = batLevel
-
-        val notificationsEnabledForBattery = gatt.setCharacteristicNotification(batLevel, true)
-        Log.i(TAG, "setCharacteristicNotification(BATTERY) ok=$notificationsEnabledForBattery")
-
-        val batteryCccd = batLevel.getDescriptor(CLIENT_CONFIG_UUID)
-        if (batteryCccd != null) {
-            batteryCccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            val cccdWriteLaunched = gatt.writeDescriptor(batteryCccd)
-            Log.i(TAG, "write CCCD BATTERY launched=$cccdWriteLaunched")
-        } else {
-            Log.i(TAG, "CCCD de Battery Level no encontrado; continuando ($source)")
-        }
     }
 
     private fun onBatteryLevelRead(value: ByteArray, status: Int, apiVariant: String) {
@@ -578,7 +574,7 @@ class DogFitBleService : Service() {
             return
         }
 
-        val batteryPercent = (value[0].toInt() and 0xFF).coerceIn(0, 100)
+        val batteryPercent = BlePacketParser.parseBattery(value).coerceIn(0, 100)
         Log.i(TAG, "Battery Level leído desde BAS: $batteryPercent% (source=$source)")
 
         sendInternalBroadcast(Intent(BLE_ACTION_BATTERY).apply {
@@ -608,10 +604,12 @@ class DogFitBleService : Service() {
         var processedAny = false
 
         while (rxLen - offset >= REC_BYTES) {
-            val tMs = readUInt32LE(rxBuffer, offset + 0)
-            val label = rxBuffer[offset + 4].toInt() and 0xFF
-            val conf = rxBuffer[offset + 5].toInt() and 0xFF
-            val seq = readUInt32LE(rxBuffer, offset + 6)
+            val recordBytes = rxBuffer.copyOfRange(offset, offset + REC_BYTES)
+            val record = BlePacketParser.parseRes(recordBytes).first()
+            val tMs = record.tMs
+            val label = record.label
+            val conf = record.conf
+            val seq = record.seq
 
             lastSeqProcessed = seq
             processedAny = true
@@ -648,6 +646,30 @@ class DogFitBleService : Service() {
         if (processedAny) maybeSendAck(force = false)
     }
 
+    private fun onLiveNotify(value: ByteArray, source: String) {
+        try {
+            val live = BlePacketParser.parseLive(value)
+            Log.i(TAG, "received LIVE notify source=$source tMs=${live.tMs} label=${live.label} conf=${live.conf}")
+            val intent = Intent(BLE_ACTION_NEW_DATA).apply {
+                putExtra("activity_label", live.label)
+                putExtra("confidence", live.conf)
+                putExtra("sensor_time_ms", live.tMs)
+                putExtra("is_live", true)
+                putExtra(
+                    "data",
+                    JSONObject().apply {
+                        put("act", live.label)
+                        put("conf", live.conf)
+                        put("t_ms", live.tMs)
+                    }.toString()
+                )
+            }
+            sendInternalBroadcast(intent)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "LIVE inválido source=$source size=${value.size}", e)
+        }
+    }
+
     private fun maybeSendAck(force: Boolean) {
         val gatt = bluetoothGatt ?: return
         val c = ackChar ?: return
@@ -673,14 +695,6 @@ class DogFitBleService : Service() {
         } else {
             Log.w(TAG, "ACK writeCharacteristic failed")
         }
-    }
-
-    private fun readUInt32LE(bytes: ByteArray, offset: Int): Long {
-        val b0 = bytes[offset + 0].toLong() and 0xFF
-        val b1 = (bytes[offset + 1].toLong() and 0xFF) shl 8
-        val b2 = (bytes[offset + 2].toLong() and 0xFF) shl 16
-        val b3 = (bytes[offset + 3].toLong() and 0xFF) shl 24
-        return (b0 or b1 or b2 or b3) and 0xFFFFFFFFL
     }
 
     private fun writeUInt32LE(dst: ByteArray, offset: Int, value: Long) {
