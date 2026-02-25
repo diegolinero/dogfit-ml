@@ -422,10 +422,12 @@ class DogFitBleService : Service() {
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            when (characteristic.uuid) {
-                RESULT_CHAR_UUID -> onResultNotify(characteristic.value ?: ByteArray(0))
-                LIVE_CHAR_UUID -> onLiveNotify(characteristic.value ?: ByteArray(0), "notify-legacy")
-                BAT_LEVEL_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
+            safelyHandleGattEvent("onCharacteristicChanged-legacy-${characteristic.uuid}", gatt) {
+                when (characteristic.uuid) {
+                    RESULT_CHAR_UUID -> onResultNotify(characteristic.value ?: ByteArray(0))
+                    LIVE_CHAR_UUID -> onLiveNotify(characteristic.value ?: ByteArray(0), "notify-legacy")
+                    BAT_LEVEL_UUID -> onBatteryLevelUpdate(characteristic.value ?: ByteArray(0), "notify-legacy")
+                }
             }
         }
 
@@ -467,11 +469,28 @@ class DogFitBleService : Service() {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            when (characteristic.uuid) {
-                RESULT_CHAR_UUID -> onResultNotify(value)
-                LIVE_CHAR_UUID -> onLiveNotify(value, "notify-api33")
-                BAT_LEVEL_UUID -> onBatteryLevelUpdate(value, "notify-api33")
+            safelyHandleGattEvent("onCharacteristicChanged-api33-${characteristic.uuid}", gatt) {
+                when (characteristic.uuid) {
+                    RESULT_CHAR_UUID -> onResultNotify(value)
+                    LIVE_CHAR_UUID -> onLiveNotify(value, "notify-api33")
+                    BAT_LEVEL_UUID -> onBatteryLevelUpdate(value, "notify-api33")
+                }
             }
+        }
+    }
+
+    private inline fun safelyHandleGattEvent(event: String, gatt: BluetoothGatt, block: () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error inesperado en callback BLE ($event)", t)
+            cleanupGattAndState(
+                reason = "callback-exception-$event",
+                gatt = gatt,
+                broadcastDisconnected = true,
+                restartScan = true,
+                delayMs = reconnectDelayMs
+            )
         }
     }
 
@@ -769,4 +788,15 @@ class DogFitBleService : Service() {
     }
 
     override fun onBind(intent: Intent?) = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        handler.removeCallbacksAndMessages(null)
+        cleanupGattAndState(
+            reason = "service-destroy",
+            gatt = bluetoothGatt,
+            broadcastDisconnected = false,
+            restartScan = false
+        )
+    }
 }
