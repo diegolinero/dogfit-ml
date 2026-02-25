@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
+import org.json.JSONArray
+import org.json.JSONObject
 
 class DogFitViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -93,6 +95,16 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val confThreshold = 60
     private val stableSwitchDelayMs = 1200L
 
+    // Persistencia local para evitar pérdida de datos al reiniciar app
+    private val prefs by lazy {
+        context.getSharedPreferences("dogfit_runtime_state", android.content.Context.MODE_PRIVATE)
+    }
+    private val keyStateDate = "state_date"
+    private val keyStepsTotal = "steps_total"
+    private val keyHistory = "activity_history"
+    private val keyActivityMs = "activity_ms"
+    private val keyActiveMs = "active_ms"
+
     // Para saber si hoy ya tenemos stream BLE y no usar count*5
     private var hasBleTimingForToday = false
 
@@ -169,6 +181,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     init {
+        restorePersistedState()
         updateAllStats()
         generateInitialAlerts()
     }
@@ -205,6 +218,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
             if (cleaned in 0..3) activityMsToday[cleaned] += dt
             if (cleaned in 1..3) activeMsToday += dt
+            persistRuntimeState()
 
             val stable = pushAndGetStableLabel(cleaned, sensorTimeMs)
             updateActivity(stable)
@@ -357,11 +371,14 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 val list = _activityHistory.value?.toMutableList() ?: mutableListOf()
                 list.add(newData)
                 _activityHistory.value = list
+                persistRuntimeState()
 
                 updateCalories(deltaSteps)
                 updateDistance(deltaSteps)
                 checkAlerts(newData)
             }
+
+            persistRuntimeState()
 
             // No usamos count*5 para HOY si hay BLE timing.
             updateAllStats()
@@ -382,6 +399,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun updateDailyStats() {
+        ensureCurrentDayState()
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val todayData = _activityHistory.value?.filter {
             SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it.timestamp)) == today
@@ -478,6 +496,95 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun updateMonthlyStats() {
         // (tu implementación original puede quedarse; no toca los errores)
+    }
+
+    private fun ensureCurrentDayState() {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val savedDate = prefs.getString(keyStateDate, null)
+        if (savedDate == null || savedDate == today) return
+
+        _stepsCount.value = "Pasos hoy: 0"
+        _activityHistory.value = emptyList()
+        activeMsToday = 0L
+        for (i in activityMsToday.indices) activityMsToday[i] = 0L
+        hasBleTimingForToday = false
+        lastSensorMs = null
+        persistRuntimeState()
+    }
+
+    private fun restorePersistedState() {
+        ensureCurrentDayState()
+
+        val savedSteps = prefs.getInt(keyStepsTotal, 0).coerceAtLeast(0)
+        _stepsCount.value = "Pasos hoy: $savedSteps"
+
+        val historyJson = prefs.getString(keyHistory, null)
+        if (!historyJson.isNullOrEmpty()) {
+            val restored = mutableListOf<DogActivityData>()
+            runCatching {
+                val arr = JSONArray(historyJson)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    restored.add(
+                        DogActivityData(
+                            id = obj.optLong("id", 0L),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            activityType = obj.optInt("activityType", 0),
+                            intensity = obj.optDouble("intensity", 0.1).toFloat(),
+                            steps = obj.optInt("steps", 0),
+                            estimatedDistance = obj.optDouble("estimatedDistance", 0.0).toFloat(),
+                            calories = obj.optDouble("calories", 0.0).toFloat(),
+                            durationMinutes = obj.optInt("durationMinutes", 0)
+                        )
+                    )
+                }
+            }
+            _activityHistory.value = restored
+        }
+
+        val activityMsJson = prefs.getString(keyActivityMs, null)
+        if (!activityMsJson.isNullOrEmpty()) {
+            runCatching {
+                val arr = JSONArray(activityMsJson)
+                for (i in 0..3) activityMsToday[i] = arr.optLong(i, 0L).coerceAtLeast(0L)
+            }
+        }
+
+        activeMsToday = prefs.getLong(keyActiveMs, 0L).coerceAtLeast(0L)
+        hasBleTimingForToday = activityMsToday.any { it > 0L } || activeMsToday > 0L
+    }
+
+    private fun persistRuntimeState() {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val steps = _stepsCount.value?.substringAfter(": ")?.toIntOrNull() ?: 0
+
+        val historyArr = JSONArray()
+        (_activityHistory.value ?: emptyList()).takeLast(2000).forEach { item ->
+            historyArr.put(
+                JSONObject().apply {
+                    put("id", item.id)
+                    put("timestamp", item.timestamp)
+                    put("activityType", item.activityType)
+                    put("intensity", item.intensity.toDouble())
+                    put("steps", item.steps)
+                    put("estimatedDistance", item.estimatedDistance.toDouble())
+                    put("calories", item.calories.toDouble())
+                    put("durationMinutes", item.durationMinutes)
+                }
+            )
+        }
+
+        val activityMsArr = JSONArray().apply {
+            for (i in 0..3) put(activityMsToday[i])
+        }
+
+        prefs.edit()
+            .putString(keyStateDate, today)
+            .putInt(keyStepsTotal, steps)
+            .putString(keyHistory, historyArr.toString())
+            .putString(keyActivityMs, activityMsArr.toString())
+            .putLong(keyActiveMs, activeMsToday)
+            .apply()
     }
 
     // =========================================================
