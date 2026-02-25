@@ -190,7 +190,7 @@ static int   ei_ring_head = 0;
 static int   ei_frames_collected = 0;
 static int   ei_frames_since_infer = 0;
 
-static constexpr int EI_INFER_STRIDE_FRAMES = 150;
+static constexpr int EI_INFER_STRIDE_FRAMES = 50;
 
 // =====================================================
 // Helpers

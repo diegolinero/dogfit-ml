@@ -577,9 +577,9 @@ fun TotalAccumulatedTimeCard(activityTimes: Map<Int, Long>) {
                 color = MaterialTheme.colorScheme.primary
             )
 
-            TimeLegendRow(label = "Reposo", color = Color(0xFF9E9E9E), seconds = activityTimes[0] ?: 0L)
-            TimeLegendRow(label = "Caminando", color = Color(0xFF4CAF50), seconds = activityTimes[1] ?: 0L)
-            TimeLegendRow(label = "Corriendo", color = Color(0xFFFFC107), seconds = activityTimes[2] ?: 0L)
+            TimeLegendRow(label = "Reposo", color = Color(0xFF9E9E9E), seconds = activityTimes[2] ?: 0L)
+            TimeLegendRow(label = "Caminando", color = Color(0xFF4CAF50), seconds = activityTimes[0] ?: 0L)
+            TimeLegendRow(label = "Corriendo", color = Color(0xFFFFC107), seconds = activityTimes[1] ?: 0L)
             TimeLegendRow(label = "Jugando", color = Color(0xFFFF5722), seconds = activityTimes[3] ?: 0L)
         }
     }
