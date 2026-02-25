@@ -272,25 +272,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissions(): Boolean {
-        val permissions = mutableListOf<String>()
+        // ✅ BLE debe funcionar incluso si el usuario no concede POST_NOTIFICATIONS.
+        // Por eso aquí validamos solo permisos estrictamente necesarios para escaneo/conexión.
+        val blePermissions = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            blePermissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         } else {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            blePermissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            blePermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        return permissions.all {
+        return blePermissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     private fun requestPermissions() {
+        // Solicitamos permisos mínimos de BLE para no bloquear conexión por permisos opcionales.
         val permissions = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -300,11 +299,7 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        Log.i(TAG, "Solicitando permisos runtime: $permissions")
+        Log.i(TAG, "Solicitando permisos runtime BLE: $permissions")
         permissionLauncher.launch(permissions.toTypedArray())
     }
 
@@ -333,7 +328,6 @@ fun MainScreen(
 ) {
     val scrollState = rememberScrollState()
     val profile by viewModel.dogProfile.observeAsState()
-    val dailyStats by viewModel.dailyStats.observeAsState()
     val batteryValue by viewModel.batteryValue.collectAsState()
     val activityValue by viewModel.activityValue.collectAsState()
     val activityTimes by viewModel.activityTimes.collectAsState()
@@ -420,30 +414,6 @@ fun MainScreen(
                     label = "Batería",
                     value = "${batteryValue ?: "--"}%",
                     color = MaterialTheme.colorScheme.tertiaryContainer
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MetricCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.LocalFireDepartment,
-                    value = String.format("%.0f", dailyStats?.caloriesBurned ?: 0f),
-                    label = "Calorías"
-                )
-                MetricCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Route,
-                    value = String.format("%.1f", dailyStats?.distanceKm ?: 0f),
-                    label = "Km"
-                )
-                MetricCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Timer,
-                    value = "${dailyStats?.activeMinutes ?: 0}",
-                    label = "Min activos"
                 )
             }
 
