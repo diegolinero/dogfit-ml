@@ -272,7 +272,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     fun updateBattery(batteryValue: Int?) {
         viewModelScope.launch {
             val current = _batteryValue.value
-            val normalized = batteryValue?.coerceIn(1, 100) ?: current
+            val normalized = batteryValue?.coerceIn(0, 100) ?: current
 
             if (normalized == null) {
                 _batteryLevel.value = "Batería: --%"
