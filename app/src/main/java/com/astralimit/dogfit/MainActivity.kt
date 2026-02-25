@@ -110,8 +110,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var isDataReceiverRegistered = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        registerDataReceiverIfNeeded()
 
         setContent {
             DogFitTheme {
@@ -128,6 +132,25 @@ class MainActivity : ComponentActivity() {
 
         handleNotificationIntent(intent)
         ensureBleReadyAndStartService()
+    }
+
+    private fun registerDataReceiverIfNeeded() {
+        if (isDataReceiverRegistered) return
+
+        val filter = IntentFilter().apply {
+            addAction(BLE_ACTION_NEW_DATA)
+            addAction(BLE_ACTION_STATUS)
+            addAction(BLE_ACTION_BATTERY)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(dataReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(dataReceiver, filter)
+        }
+
+        isDataReceiverRegistered = true
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -285,29 +308,16 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(permissions.toTypedArray())
     }
 
-    override fun onResume() {
-        super.onResume()
-        val filter = IntentFilter().apply {
-            addAction(BLE_ACTION_NEW_DATA)
-            addAction(BLE_ACTION_STATUS)
-            addAction(BLE_ACTION_BATTERY)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dataReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(dataReceiver, filter)
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
+    override fun onDestroy() {
         try {
-            unregisterReceiver(dataReceiver)
+            if (isDataReceiverRegistered) {
+                unregisterReceiver(dataReceiver)
+                isDataReceiverRegistered = false
+            }
         } catch (_: IllegalArgumentException) {
             // ya estaba desregistrado
         }
+        super.onDestroy()
     }
 }
 
