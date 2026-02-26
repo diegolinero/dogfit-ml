@@ -115,8 +115,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        registerDataReceiverIfNeeded()
-
         setContent {
             DogFitTheme {
                 MainScreen(
@@ -132,6 +130,23 @@ class MainActivity : ComponentActivity() {
 
         handleNotificationIntent(intent)
         ensureBleReadyAndStartService()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerDataReceiverIfNeeded()
+    }
+
+    override fun onStop() {
+        if (isDataReceiverRegistered) {
+            try {
+                unregisterReceiver(dataReceiver)
+            } catch (_: IllegalArgumentException) {
+                // ya estaba desregistrado
+            }
+            isDataReceiverRegistered = false
+        }
+        super.onStop()
     }
 
     private fun registerDataReceiverIfNeeded() {

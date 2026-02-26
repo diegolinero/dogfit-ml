@@ -3,8 +3,10 @@ package com.astralimit.dogfit
 import android.app.*
 import android.bluetooth.*
 import android.bluetooth.le.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.*
 import android.util.Log
@@ -45,6 +47,31 @@ class DogFitBleService : Service() {
     private var connectInProgress = false
 
     private var bleEstimatedStepsTotal = 0
+    private var bluetoothStateReceiverRegistered = false
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_OFF,
+                BluetoothAdapter.STATE_TURNING_OFF -> {
+                    Log.w(TAG, "Bluetooth del teléfono apagado; cerrando sesión BLE activa")
+                    cleanupGattAndState(
+                        reason = "adapter-off",
+                        gatt = bluetoothGatt,
+                        broadcastDisconnected = true,
+                        restartScan = false
+                    )
+                }
+
+                BluetoothAdapter.STATE_ON -> {
+                    Log.i(TAG, "Bluetooth del teléfono encendido; reanudando escaneo")
+                    scheduleScanRestart(500)
+                }
+            }
+        }
+    }
 
     private val notifyQueue: ArrayDeque<BluetoothGattCharacteristic> = ArrayDeque()
 
@@ -114,6 +141,13 @@ class DogFitBleService : Service() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         createNotificationChannel()
+        registerBluetoothStateReceiverIfNeeded()
+    }
+
+    private fun registerBluetoothStateReceiverIfNeeded() {
+        if (bluetoothStateReceiverRegistered) return
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        bluetoothStateReceiverRegistered = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -187,6 +221,10 @@ class DogFitBleService : Service() {
     }
 
     private fun scheduleScanRestart(delayMs: Long) {
+        if (bluetoothAdapter?.isEnabled != true) {
+            Log.i(TAG, "No se reprograma scan porque Bluetooth está apagado")
+            return
+        }
         Log.i(TAG, "restarting scan in ${delayMs}ms")
         handler.postDelayed({ startScanning() }, delayMs)
     }
@@ -792,6 +830,13 @@ class DogFitBleService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
+        if (bluetoothStateReceiverRegistered) {
+            try {
+                unregisterReceiver(bluetoothStateReceiver)
+            } catch (_: IllegalArgumentException) {
+            }
+            bluetoothStateReceiverRegistered = false
+        }
         cleanupGattAndState(
             reason = "service-destroy",
             gatt = bluetoothGatt,
