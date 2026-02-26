@@ -138,6 +138,9 @@ class DogFitBleService : Service() {
             handler.postDelayed(this, noDataCheckIntervalMs)
         }
     }
+    private val reconnectBackoffScheduleMs = longArrayOf(4_000L, 8_000L, 15_000L)
+    private var reconnectAttemptCount = 0
+    private var reconnectRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -394,20 +397,77 @@ class DogFitBleService : Service() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             Log.i(TAG, "onConnectionStateChange status=$status newState=$newState")
 
+            fun scheduleReconnect(reason: String): Unit {
+                val targetDevice: BluetoothDevice = gatt.device
+
+                reconnectRunnable?.let { pending: Runnable ->
+                    handler.removeCallbacks(pending)
+                }
+
+                val backoffIndex: Int = reconnectAttemptCount.coerceAtMost(reconnectBackoffScheduleMs.lastIndex)
+                val delayMs: Long = reconnectBackoffScheduleMs[backoffIndex]
+                reconnectAttemptCount += 1
+
+                reconnectRunnable = Runnable {
+                    var nextReason: String? = null
+                    try {
+                        Log.d("BLE", "Intentando reconexión... intento=$reconnectAttemptCount delay=${delayMs}ms reason=$reason status=$status")
+                        connectInProgress = true
+                        notificationsEnabled = false
+
+                        val newGatt: BluetoothGatt? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            targetDevice.connectGatt(
+                                this@DogFitBleService,
+                                false,
+                                gattCallback,
+                                BluetoothDevice.TRANSPORT_LE
+                            )
+                        } else {
+                            targetDevice.connectGatt(this@DogFitBleService, false, gattCallback)
+                        }
+
+                        if (newGatt == null) {
+                            Log.e(TAG, "connectGatt devolvió null durante reconexión")
+                            nextReason = "connectGatt-null"
+                        } else {
+                            bluetoothGatt = newGatt
+                            startConnectTimeout()
+                        }
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Error al reconectar GATT", t)
+                        nextReason = "connectGatt-throwable"
+                    }
+
+                    if (nextReason != null) {
+                        scheduleReconnect(nextReason!!)
+                    }
+                }
+
+                handler.postDelayed(reconnectRunnable!!, delayMs)
+            }
+
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(TAG, "Fallo GATT por status no exitoso: status=$status")
+                val commonError: String = when (status) {
+                    133 -> "GATT_ERROR(133)"
+                    257 -> "GATT_CONN_TIMEOUT(257)"
+                    else -> "status=$status"
+                }
+                Log.e(TAG, "Fallo GATT por status no exitoso: $commonError")
                 cleanupGattAndState(
-                    reason = "connection-state-failure-status-$status",
+                    reason = "connection-state-failure-$commonError",
                     gatt = gatt,
                     broadcastDisconnected = true,
-                    restartScan = true,
-                    delayMs = reconnectDelayMs
+                    restartScan = false
                 )
+                scheduleReconnect("connection-state-failure-$commonError")
                 return
             }
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT Conectado. Descubriendo servicios...")
+                reconnectRunnable?.let { handler.removeCallbacks(it) }
+                reconnectRunnable = null
+                reconnectAttemptCount = 0
 
                 rxLen = 0
                 lastSeqProcessed = -1L
@@ -429,14 +489,14 @@ class DogFitBleService : Service() {
             }
 
             if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                Log.e(TAG, "GATT Desconectado. status=$status. Reintentando...")
+                Log.e(TAG, "GATT Desconectado. status=$status. Cerrando y reintentando...")
                 cleanupGattAndState(
                     reason = "connection-state-disconnected",
                     gatt = gatt,
                     broadcastDisconnected = true,
-                    restartScan = true,
-                    delayMs = reconnectDelayMs
+                    restartScan = false
                 )
+                scheduleReconnect("connection-state-disconnected")
             }
         }
 
