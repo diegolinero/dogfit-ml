@@ -26,8 +26,9 @@ class ActivityClassifier {
         private const val WINDOW_DURATION_SEC = 1
         private const val WINDOW_SIZE = SAMPLE_RATE_HZ * WINDOW_DURATION_SEC // 10 muestras = 1 segundo
 
-        private const val STABILITY_THRESHOLD = 3 // Ventanas consecutivas para cambiar estado
-        private const val VOTE_WINDOW_SIZE = 5    // Ventanas para majority voting
+        // Ajustado para cambiar de estado <=2s en condiciones normales de streaming BLE.
+        private const val STABILITY_THRESHOLD = 2 // Ventanas consecutivas para cambiar estado
+        private const val VOTE_WINDOW_SIZE = 3    // Ventanas para majority voting
     }
 
     var sensitivityFactor: Float = 1.0f
