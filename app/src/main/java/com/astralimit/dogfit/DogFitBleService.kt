@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -18,6 +19,8 @@ import java.util.*
 class DogFitBleService : Service() {
 
     companion object {
+        private const val FOREGROUND_CHANNEL_ID = "dogfit_ble_channel"
+        private const val FOREGROUND_NOTIFICATION_ID = 1001
         private const val BLE_ACTION_NEW_DATA = "com.astralimit.dogfit.NEW_DATA"
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
@@ -141,6 +144,7 @@ class DogFitBleService : Service() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         createNotificationChannel()
+        startBleForegroundService()
         registerBluetoothStateReceiverIfNeeded()
     }
 
@@ -151,15 +155,29 @@ class DogFitBleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, "DogFitChannel")
-            .setContentTitle("Collar DogFit")
-            .setContentText("Buscando conexión...")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .build()
-
-        startForeground(1, notification)
+        startBleForegroundService()
         startScanning()
         return START_STICKY
+    }
+
+    private fun startBleForegroundService() {
+        val notification = NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
+            .setContentTitle("DogFit conectado")
+            .setContentText("Manteniendo conexión con el collar")
+            .setSmallIcon(R.drawable.ic_walk)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
     }
 
     // =====================================================
@@ -815,7 +833,11 @@ class DogFitBleService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("DogFitChannel", "DogFit", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                FOREGROUND_CHANNEL_ID,
+                "DogFit BLE",
+                NotificationManager.IMPORTANCE_LOW
+            )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
