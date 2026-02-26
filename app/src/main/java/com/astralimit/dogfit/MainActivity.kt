@@ -1,6 +1,7 @@
 package com.astralimit.dogfit
 
 import android.Manifest
+import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
@@ -10,6 +11,9 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -130,6 +134,7 @@ class MainActivity : ComponentActivity() {
 
         handleNotificationIntent(intent)
         ensureBleReadyAndStartService()
+        requestIgnoreBatteryOptimizations()
     }
 
     override fun onStart() {
@@ -284,6 +289,27 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(serviceIntent)
         }
+    }
+
+    private fun requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        val packageName = packageName
+
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+
+        AlertDialog.Builder(this)
+            .setTitle("Optimización de batería")
+            .setMessage("Para evitar desconexiones cuando la pantalla está apagada, permite que DogFit ignore optimizaciones de batería. ¿Quieres configurarlo ahora?")
+            .setPositiveButton("Sí") { _, _ ->
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+            .setNegativeButton("Ahora no", null)
+            .show()
     }
 
     private fun checkPermissions(): Boolean {
