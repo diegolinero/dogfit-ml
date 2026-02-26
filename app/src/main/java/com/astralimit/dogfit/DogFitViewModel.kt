@@ -88,12 +88,12 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val activityMsToday = LongArray(4) { 0L } // 0..3
 
     private val recentLabels = ArrayDeque<Int>()
-    private val recentMax = 8
+    private val recentMax = 4
     private var stableLabel = 0
     private var pendingStableLabel: Int? = null
     private var pendingSinceMs: Long = 0L
     private val confThreshold = 60
-    private val stableSwitchDelayMs = 1200L
+    private val stableSwitchDelayMs = 600L
 
     // Persistencia local para evitar pérdida de datos al reiniciar app
     private val prefs by lazy {
@@ -242,7 +242,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        val shouldSwitch = bestLabel != stableLabel && bestCount >= 2
+        val shouldSwitch = bestLabel != stableLabel && bestCount >= 1
         if (!shouldSwitch) {
             pendingStableLabel = null
             return stableLabel
@@ -521,7 +521,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
         val historyJson = prefs.getString(keyHistory, null)
         if (!historyJson.isNullOrEmpty()) {
             val restored = mutableListOf<DogActivityData>()
-            runCatching {
+            val restoredOk = runCatching {
                 val arr = JSONArray(historyJson)
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
@@ -538,15 +538,30 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     )
                 }
+            }.isSuccess
+
+            if (restoredOk) {
+                _activityHistory.value = restored.takeLast(2000)
+            } else {
+                Log.w("DogFitViewModel", "Historial corrupto en preferencias; se restablece estado persistido")
+                prefs.edit().remove(keyHistory).remove(keyActivityMs).remove(keyActiveMs).apply()
+                _activityHistory.value = emptyList()
+                activeMsToday = 0L
+                for (i in activityMsToday.indices) activityMsToday[i] = 0L
             }
-            _activityHistory.value = restored
         }
 
         val activityMsJson = prefs.getString(keyActivityMs, null)
         if (!activityMsJson.isNullOrEmpty()) {
-            runCatching {
+            val activityMsOk = runCatching {
                 val arr = JSONArray(activityMsJson)
                 for (i in 0..3) activityMsToday[i] = arr.optLong(i, 0L).coerceAtLeast(0L)
+            }.isSuccess
+            if (!activityMsOk) {
+                Log.w("DogFitViewModel", "activity_ms corrupto; reiniciando acumuladores")
+                for (i in activityMsToday.indices) activityMsToday[i] = 0L
+                activeMsToday = 0L
+                prefs.edit().remove(keyActivityMs).remove(keyActiveMs).apply()
             }
         }
 
