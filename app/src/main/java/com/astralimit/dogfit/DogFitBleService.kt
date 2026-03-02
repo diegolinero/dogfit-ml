@@ -850,6 +850,18 @@ class DogFitBleService : Service() {
         lastBlePayloadAtMs = SystemClock.elapsedRealtime()
         Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size} mode=$currentMode")
 
+        if (chunk.size % captureRecordBytes == 0 && chunk.size % inferenceRecordBytes != 0 && currentMode != BlePacketParser.MODE_CAPTURE) {
+            currentMode = BlePacketParser.MODE_CAPTURE
+            modePrefs.edit().putInt(EXTRA_MODE, currentMode).apply()
+            sendModeBroadcast(currentMode, true, null)
+            Log.i(TAG, "Detección automática: payload RES compatible con CAPTURA")
+        } else if (chunk.size % inferenceRecordBytes == 0 && chunk.size % captureRecordBytes != 0 && currentMode != BlePacketParser.MODE_INFERENCE) {
+            currentMode = BlePacketParser.MODE_INFERENCE
+            modePrefs.edit().putInt(EXTRA_MODE, currentMode).apply()
+            sendModeBroadcast(currentMode, true, null)
+            Log.i(TAG, "Detección automática: payload RES compatible con INFERENCIA")
+        }
+
         if (rxLen + chunk.size > rxBuffer.size) {
             Log.w(TAG, "RX overflow. Reset buffer.")
             rxLen = 0
@@ -967,6 +979,9 @@ class DogFitBleService : Service() {
         }
 
         val parts = qrData.split("|")
+        if (parts.size < 3) {
+            Log.w(TAG, "QR con formato inesperado. Esperado: deviceName|userId|calibrationData")
+        }
         val deviceName = parts.getOrNull(0).orEmpty()
         val userId = parts.getOrNull(1).orEmpty()
         val calibrationData = parts.getOrNull(2).orEmpty()

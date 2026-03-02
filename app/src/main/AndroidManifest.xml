@@ -21,6 +21,14 @@
     <!-- Permiso cámara para escaneo QR -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- Permisos de almacenamiento para exportación/lectura de archivos -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!-- Permisos para notificaciones -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
