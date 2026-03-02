@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvConnectionStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Estado: Desconectado" />
+
+        <TextView
+            android:id="@+id/tvBattery"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Batería: --%" />
+
+        <Spinner
+            android:id="@+id/spActivity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:entries="@array/activity_labels" />
+
+        <Button
+            android:id="@+id/btnMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Cambiar modo" />
+
+        <Button
+            android:id="@+id/btnCapture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Iniciar captura" />
+
+        <Button
+            android:id="@+id/btnQr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Escanear QR" />
+
+        <TextView
+            android:id="@+id/tvLiveLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Label: --" />
+
+        <ProgressBar
+            android:id="@+id/progressConfidence"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100" />
+
+        <TextView
+            android:id="@+id/tvImu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ax:0 ay:0 az:0 gx:0 gy:0 gz:0" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvCaptured"
+            android:layout_width="match_parent"
+            android:layout_height="240dp" />
+
+        <Button
+            android:id="@+id/btnExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Exportar" />
+
+    </LinearLayout>
+</ScrollView>
