@@ -149,6 +149,10 @@ class DogFitBleService : Service() {
     private var reconnectAttemptCount = 0
     private var reconnectRunnable: Runnable? = null
 
+    // Si hay stream LIVE activo, ignoramos RES en inferencia para evitar backlog/buffer antiguo.
+    private var lastLiveNotifyAtMs: Long = 0L
+    private val livePriorityWindowMs = 5_000L
+
     override fun onCreate() {
         super.onCreate()
         currentMode = modePrefs.getInt(EXTRA_MODE, BlePacketParser.MODE_INFERENCE)
@@ -848,7 +852,6 @@ class DogFitBleService : Service() {
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
         lastBlePayloadAtMs = SystemClock.elapsedRealtime()
-        Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size} mode=$currentMode")
 
         if (chunk.size % captureRecordBytes == 0 && chunk.size % inferenceRecordBytes != 0 && currentMode != BlePacketParser.MODE_CAPTURE) {
             currentMode = BlePacketParser.MODE_CAPTURE
@@ -878,7 +881,6 @@ class DogFitBleService : Service() {
 
             if (currentMode == BlePacketParser.MODE_CAPTURE) {
                 val sample = BlePacketParser.parseCapture(payload).first()
-                Log.d(TAG, "RAW IMU ax=${sample.ax} ay=${sample.ay} az=${sample.az} gx=${sample.gx} gy=${sample.gy} gz=${sample.gz}")
                 sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
                     putExtra("is_capture", true)
                     putExtra("ax", sample.ax.toInt())
@@ -899,25 +901,28 @@ class DogFitBleService : Service() {
                     }.toString())
                 })
             } else {
-                val record = BlePacketParser.parseRes(payload).first()
-                val inc = estimateStepsIncrement(record.label, record.conf)
-                bleEstimatedStepsTotal += inc
+                val hasRecentLive = (SystemClock.elapsedRealtime() - lastLiveNotifyAtMs) <= livePriorityWindowMs
+                if (!hasRecentLive) {
+                    val record = BlePacketParser.parseRes(payload).first()
+                    val inc = estimateStepsIncrement(record.label, record.conf)
+                    bleEstimatedStepsTotal += inc
 
-                sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
-                    putExtra("activity_label", record.label)
-                    putExtra("confidence", record.conf)
-                    putExtra("sequence", record.seq)
-                    putExtra("sensor_time_ms", record.tMs)
-                    putExtra("steps_total", bleEstimatedStepsTotal)
+                    sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
+                        putExtra("activity_label", record.label)
+                        putExtra("confidence", record.conf)
+                        putExtra("sequence", record.seq)
+                        putExtra("sensor_time_ms", record.tMs)
+                        putExtra("steps_total", bleEstimatedStepsTotal)
 
-                    putExtra("data", JSONObject().apply {
-                        put("act", record.label)
-                        put("stp", bleEstimatedStepsTotal)
-                        put("conf", record.conf)
-                        put("seq", record.seq)
-                        put("t_ms", record.tMs)
-                    }.toString())
-                })
+                        putExtra("data", JSONObject().apply {
+                            put("act", record.label)
+                            put("stp", bleEstimatedStepsTotal)
+                            put("conf", record.conf)
+                            put("seq", record.seq)
+                            put("t_ms", record.tMs)
+                        }.toString())
+                    })
+                }
             }
 
             offset += recordBytes
@@ -937,8 +942,8 @@ class DogFitBleService : Service() {
         }
         try {
             lastBlePayloadAtMs = SystemClock.elapsedRealtime()
+            lastLiveNotifyAtMs = lastBlePayloadAtMs
             val live = BlePacketParser.parseLive(value)
-            Log.i(TAG, "received LIVE notify source=$source tMs=${live.tMs} label=${live.label} conf=${live.conf}")
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
                 putExtra("activity_label", live.label)
                 putExtra("confidence", live.conf)
