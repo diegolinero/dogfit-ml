@@ -34,6 +34,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val _bleConnected = MutableStateFlow(false)
     val bleConnected: StateFlow<Boolean> = _bleConnected.asStateFlow()
 
+    private val _currentMode = MutableStateFlow(BlePacketParser.MODE_INFERENCE)
+    val currentMode: StateFlow<Int> = _currentMode.asStateFlow()
+
     // ✅ RESTAURADO: lo usan otras pantallas
     private val _activityTimes = MutableStateFlow<Map<Int, Long>>(emptyMap())
     val activityTimes: StateFlow<Map<Int, Long>> = _activityTimes.asStateFlow()
@@ -104,6 +107,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val keyHistory = "activity_history"
     private val keyActivityMs = "activity_ms"
     private val keyActiveMs = "active_ms"
+    private val keyCurrentMode = "current_mode"
 
     // Para saber si hoy ya tenemos stream BLE y no usar count*5
     private var hasBleTimingForToday = false
@@ -181,6 +185,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     init {
+        _currentMode.value = prefs.getInt(keyCurrentMode, BlePacketParser.MODE_INFERENCE)
         restorePersistedState()
         updateAllStats()
         generateInitialAlerts()
@@ -323,6 +328,16 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 pendingSinceMs = 0L
             }
             Log.d("DogFitViewModel", "BLE conectado: $connected")
+        }
+    }
+
+
+    fun updateMode(mode: Int) {
+        viewModelScope.launch {
+            if (mode != BlePacketParser.MODE_INFERENCE && mode != BlePacketParser.MODE_CAPTURE) return@launch
+            _currentMode.value = mode
+            prefs.edit().putInt(keyCurrentMode, mode).apply()
+            Log.d("DogFitViewModel", "Modo BLE actualizado: $mode")
         }
     }
 
