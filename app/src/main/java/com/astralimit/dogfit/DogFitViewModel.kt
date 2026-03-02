@@ -195,9 +195,11 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         _currentMode.value = prefs.getInt(keyCurrentMode, BlePacketParser.MODE_INFERENCE)
-        restorePersistedState()
-        updateAllStats()
-        generateInitialAlerts()
+        viewModelScope.launch {
+            restorePersistedState()
+            updateAllStats()
+            generateInitialAlerts()
+        }
     }
 
     // =========================================================
