@@ -212,6 +212,7 @@ class MainActivity : ComponentActivity() {
                             getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
                                 .edit()
                                 .putString("last_custom_label", customLabel)
+                                .putString("last_capture_label", selectedLabel)
                                 .apply()
                             Toast.makeText(this, "Captura iniciada", Toast.LENGTH_SHORT).show()
                         } else {
@@ -513,7 +514,14 @@ fun MainScreen(
     val liveImu by viewModel.liveImuAxes.collectAsState()
     val context = LocalContext.current
     val labels = listOf("Descanso", "Caminar", "Correr", "Escaleras")
-    var selectedLabel by remember { mutableStateOf(labels.first()) }
+    var selectedLabel by remember {
+        mutableStateOf(
+            context.getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
+                .getString("last_capture_label", labels.first())
+                .orEmpty()
+                .ifBlank { labels.first() }
+        )
+    }
     var customLabel by remember {
         mutableStateOf(
             context.getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
@@ -522,7 +530,6 @@ fun MainScreen(
         )
     }
     var capturing by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(false) }
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -627,21 +634,14 @@ fun MainScreen(
             }
 
             if (currentMode == BlePacketParser.MODE_CAPTURE) {
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-                    OutlinedTextField(
-                        value = selectedLabel,
-                        onValueChange = {},
-                        readOnly = true,
-                        modifier = Modifier.menuAnchor().fillMaxWidth().clickable { expanded = true },
-                        label = { Text("Actividad") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        labels.forEach { label ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = { selectedLabel = label; expanded = false })
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    value = selectedLabel,
+                    onValueChange = { selectedLabel = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Label de captura") },
+                    placeholder = { Text("Ej: Caminar, Correr, Saltar") },
+                    supportingText = { Text("Puedes escribir uno nuevo o usar: ${labels.joinToString()}") }
+                )
 
                 OutlinedTextField(
                     value = customLabel,
@@ -656,9 +656,12 @@ fun MainScreen(
                         if (!bleConnected) {
                             Toast.makeText(context, "Conecta el dispositivo", Toast.LENGTH_SHORT).show()
                         } else {
-                            val labelId = labels.indexOf(selectedLabel).coerceAtLeast(0)
+                            val normalizedLabel = selectedLabel.trim()
+                            val labelId = labels.indexOfFirst {
+                                it.equals(normalizedLabel, ignoreCase = true)
+                            }.coerceAtLeast(0)
                             val start = !capturing
-                            onCaptureToggle(selectedLabel, labelId, customLabel, start)
+                            onCaptureToggle(normalizedLabel, labelId, customLabel, start)
                             capturing = start
                         }
                     },
