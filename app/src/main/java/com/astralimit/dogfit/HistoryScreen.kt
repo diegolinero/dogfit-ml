@@ -263,9 +263,11 @@ fun TodaySummaryCard(stats: DailySummary?, activityTimes: Map<Int, Long>) {
                     label = "Descanso"
                 )
                 SummaryMetric(
-                    icon = Icons.Default.LocalFireDepartment,
-                    value = String.format("%.0f", stats?.caloriesBurned ?: 0f),
-                    label = "Calorías"
+                    icon = Icons.Default.Pets,
+                    value = formatDurationHms(
+                        listOf(0, 1, 2, 3).sumOf { activityTimes[it] ?: 0L }
+                    ),
+                    label = "Tiempo total"
                 )
             }
 
@@ -320,10 +322,8 @@ fun TodaySummaryCard(stats: DailySummary?, activityTimes: Map<Int, Long>) {
                             Text(label, style = MaterialTheme.typography.bodySmall)
                         }
                         val time = activityTimes[i] ?: 0L
-                        val minutes = time / 60
-                        val seconds = time % 60
                         Text(
-                            text = if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s",
+                            text = formatDurationHms(time),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -557,8 +557,13 @@ fun ActivityHistoryItem(summary: DogActivityData) {
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
+                    val summarySeconds = when {
+                        summary.durationMinutes > 0 -> summary.durationMinutes * 60L
+                        summary.steps > 0 -> 60L
+                        else -> 0L
+                    }
                     Text(
-                        text = "${summary.durationMinutes} min",
+                        text = formatDurationHms(summarySeconds),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -573,7 +578,11 @@ fun ActivityHistoryItem(summary: DogActivityData) {
             if (expanded) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                val activitySeconds = summary.durationMinutes * 60L
+                val activitySeconds = when {
+                    summary.durationMinutes > 0 -> summary.durationMinutes * 60L
+                    summary.steps > 0 -> 60L
+                    else -> 0L
+                }
                 val act = summary.activityType
                 val time = activitySeconds
                 if (time > 0) {
@@ -588,10 +597,8 @@ fun ActivityHistoryItem(summary: DogActivityData) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(labels.getOrElse(act) { "Desconocido" }, style = MaterialTheme.typography.bodySmall)
                             }
-                            val minutes = time / 60
-                            val seconds = time % 60
                             Text(
-                                text = if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s",
+                                text = formatDurationHms(time),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -600,4 +607,13 @@ fun ActivityHistoryItem(summary: DogActivityData) {
                 }
             }
         }
+}
+
+
+private fun formatDurationHms(seconds: Long): String {
+    val safeSeconds = seconds.coerceAtLeast(0L)
+    val hours = safeSeconds / 3600
+    val minutes = (safeSeconds % 3600) / 60
+    val secs = safeSeconds % 60
+    return String.format("%02dh %02dm %02ds", hours, minutes, secs)
 }
