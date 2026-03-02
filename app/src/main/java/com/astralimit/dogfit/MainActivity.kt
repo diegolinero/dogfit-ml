@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
+import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -583,6 +584,22 @@ fun ActivityDistributionCard(
 
 @Composable
 fun TotalAccumulatedTimeCard(activityTimes: Map<Int, Long>) {
+    val elapsedTodaySeconds = remember {
+        val now = Calendar.getInstance()
+        (now.get(Calendar.HOUR_OF_DAY) * 3600L) +
+            (now.get(Calendar.MINUTE) * 60L) +
+            now.get(Calendar.SECOND)
+    }.coerceAtLeast(1L)
+
+    val rawTotal = (activityTimes[0] ?: 0L) + (activityTimes[1] ?: 0L) + (activityTimes[2] ?: 0L) + (activityTimes[3] ?: 0L)
+    val capFactor = if (rawTotal > elapsedTodaySeconds) {
+        elapsedTodaySeconds.toFloat() / rawTotal.toFloat()
+    } else {
+        1f
+    }
+
+    fun capped(type: Int): Long = ((activityTimes[type] ?: 0L) * capFactor).toLong()
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -601,10 +618,10 @@ fun TotalAccumulatedTimeCard(activityTimes: Map<Int, Long>) {
                 color = MaterialTheme.colorScheme.primary
             )
 
-            TimeLegendRow(label = "Reposo", color = Color(0xFF9E9E9E), seconds = activityTimes[2] ?: 0L)
-            TimeLegendRow(label = "Caminando", color = Color(0xFF4CAF50), seconds = activityTimes[0] ?: 0L)
-            TimeLegendRow(label = "Corriendo", color = Color(0xFFFFC107), seconds = activityTimes[1] ?: 0L)
-            TimeLegendRow(label = "Jugando", color = Color(0xFFFF5722), seconds = activityTimes[3] ?: 0L)
+            TimeLegendRow(label = "Reposo", color = Color(0xFF9E9E9E), seconds = capped(0))
+            TimeLegendRow(label = "Caminando", color = Color(0xFF4CAF50), seconds = capped(1))
+            TimeLegendRow(label = "Corriendo", color = Color(0xFFFFC107), seconds = capped(2))
+            TimeLegendRow(label = "Jugando", color = Color(0xFFFF5722), seconds = capped(3))
         }
     }
 }
@@ -632,9 +649,10 @@ fun TimeLegendRow(label: String, color: Color, seconds: Long) {
 }
 
 private fun Long.toElapsedTime(): String {
-    val minutes = TimeUnit.SECONDS.toMinutes(this)
+    val hours = TimeUnit.SECONDS.toHours(this)
+    val minutes = TimeUnit.SECONDS.toMinutes(this) % 60
     val seconds = this % 60
-    return "${minutes}m ${seconds}s"
+    return "${hours}h ${minutes}m ${seconds}s"
 }
 
 @Composable
