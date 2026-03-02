@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -232,6 +233,10 @@ class MainActivity : ComponentActivity() {
                         } else {
                             Toast.makeText(this, "No hay archivos para exportar", Toast.LENGTH_SHORT).show()
                         }
+                    },
+                    onUploadEdgeImpulse = { apiKey ->
+                        val result = dataCaptureManager.uploadCapturedFilesToEdgeImpulse(apiKey.trim())
+                        result.message
                     },
                     onOpenCapture = { session ->
                         val shareIntent = dataCaptureManager.buildShareIntent(session.file)
@@ -489,6 +494,7 @@ fun MainScreen(
     onScanQr: () -> Unit,
     onCaptureToggle: (String, Int, String, Boolean) -> Unit,
     onExportAll: () -> Unit,
+    onUploadEdgeImpulse: (String) -> String,
     onOpenCapture: (CapturedSession) -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -520,6 +526,9 @@ fun MainScreen(
         )
     }
     var capturing by remember { mutableStateOf(false) }
+    var edgeImpulseApiKey by remember { mutableStateOf("") }
+    var uploadStatus by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -535,7 +544,7 @@ fun MainScreen(
                 title = {
                     Column {
                         Text(
-                            text = "DogFit",
+                            text = "PawActivity",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -619,7 +628,7 @@ fun MainScreen(
                     Text("Label: $liveLabel")
                     Text("Confianza: $liveConfidence%")
                     LinearProgressIndicator(progress = { liveConfidence / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("IMU ax:${liveImu[0]} ay:${liveImu[1]} az:${liveImu[2]} gx:${liveImu[3]} gy:${liveImu[4]} gz:${liveImu[5]}")
+                    Text("IMU (suavizado) ax:${liveImu[0]} ay:${liveImu[1]} az:${liveImu[2]} gx:${liveImu[3]} gy:${liveImu[4]} gz:${liveImu[5]}")
                 }
             }
 
@@ -660,6 +669,28 @@ fun MainScreen(
                 ) { Text(if (capturing) "Detener captura" else "Iniciar captura") }
 
                 Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
+
+                OutlinedTextField(
+                    value = edgeImpulseApiKey,
+                    onValueChange = { edgeImpulseApiKey = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("API key Edge Impulse") },
+                    placeholder = { Text("ei_...") }
+                )
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            uploadStatus = onUploadEdgeImpulse(edgeImpulseApiKey)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = edgeImpulseApiKey.isNotBlank()
+                ) { Text("Subir capturas a Edge Impulse") }
+
+                if (uploadStatus.isNotBlank()) {
+                    Text(uploadStatus, style = MaterialTheme.typography.bodySmall)
+                }
 
                 Text("Capturas CSV", fontWeight = FontWeight.Bold)
                 capturedSessions.forEach { session ->
