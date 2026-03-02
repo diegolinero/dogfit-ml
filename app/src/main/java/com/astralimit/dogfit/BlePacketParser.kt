@@ -13,8 +13,21 @@ data class ResRecord(
     val seq: Long
 )
 
+data class CaptureSample(
+    val ax: Short,
+    val ay: Short,
+    val az: Short,
+    val gx: Short,
+    val gy: Short,
+    val gz: Short
+)
+
 object BlePacketParser {
+    const val MODE_INFERENCE = 0
+    const val MODE_CAPTURE = 1
+
     private const val RES_RECORD_BYTES = 10
+    private const val CAPTURE_RECORD_BYTES = 12
 
     fun u32le(bytes: ByteArray, offset: Int): Long {
         require(offset >= 0 && offset + 3 < bytes.size) { "Offset fuera de rango para u32le" }
@@ -53,6 +66,36 @@ object BlePacketParser {
                 offset += RES_RECORD_BYTES
             }
         }
+    }
+
+    fun parseCapture(value: ByteArray): List<CaptureSample> {
+        require(value.isNotEmpty() && value.size % CAPTURE_RECORD_BYTES == 0) {
+            "CAPTURE requiere longitud múltiplo de $CAPTURE_RECORD_BYTES"
+        }
+
+        return buildList {
+            var offset = 0
+            while (offset + CAPTURE_RECORD_BYTES <= value.size) {
+                add(
+                    CaptureSample(
+                        ax = i16le(value, offset + 0),
+                        ay = i16le(value, offset + 2),
+                        az = i16le(value, offset + 4),
+                        gx = i16le(value, offset + 6),
+                        gy = i16le(value, offset + 8),
+                        gz = i16le(value, offset + 10)
+                    )
+                )
+                offset += CAPTURE_RECORD_BYTES
+            }
+        }
+    }
+
+    private fun i16le(bytes: ByteArray, offset: Int): Short {
+        require(offset >= 0 && offset + 1 < bytes.size) { "Offset fuera de rango para i16le" }
+        val lo = bytes[offset].toInt() and 0xFF
+        val hi = bytes[offset + 1].toInt() and 0xFF
+        return ((hi shl 8) or lo).toShort()
     }
 
     fun parseBattery(value: ByteArray): Int {

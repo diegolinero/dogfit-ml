@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
         private const val BLE_ACTION_STATUS = "com.astralimit.dogfit.BLE_STATUS"
         private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
         private const val BLE_EXTRA_CONNECTED = "connected"
+        private const val BLE_ACTION_MODE_CHANGED = "com.astralimit.dogfit.MODE_CHANGED"
     }
 
     private val viewModel: DogFitViewModel by viewModels {
@@ -97,6 +100,20 @@ class MainActivity : ComponentActivity() {
                     viewModel.updateBattery(battery)
                 }
 
+                BLE_ACTION_MODE_CHANGED -> {
+                    val success = intent.getBooleanExtra(DogFitBleService.EXTRA_SUCCESS, false)
+                    val mode = intent.getIntExtra(DogFitBleService.EXTRA_MODE, BlePacketParser.MODE_INFERENCE)
+                    if (success) {
+                        viewModel.updateMode(mode)
+                    }
+                    val message = if (success) {
+                        if (mode == BlePacketParser.MODE_CAPTURE) "Modo cambiado a CAPTURA" else "Modo cambiado a INFERENCIA"
+                    } else {
+                        intent.getStringExtra(DogFitBleService.EXTRA_ERROR) ?: "No se pudo cambiar modo"
+                    }
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                }
+
                 BLE_ACTION_NEW_DATA -> {
                     // Si recibimos datos del collar, forzamos estado conectado en UI.
                     // Esto evita quedar en "desconectado" cuando el broadcast de estado
@@ -104,7 +121,9 @@ class MainActivity : ComponentActivity() {
                     viewModel.updateBleConnection(true)
 
                     // Firmware (binario -> extras)
-                    if (intent.hasExtra("activity_label")) {
+                    if (intent.getBooleanExtra("is_capture", false)) {
+                        Log.d(TAG, "Muestra RAW IMU recibida en UI")
+                    } else if (intent.hasExtra("activity_label")) {
                         parseFirmwarePayload(intent)
                     } else {
                         // Legacy (JSON string)
@@ -128,7 +147,14 @@ class MainActivity : ComponentActivity() {
                     onNavigateToHistory = { startActivity(Intent(this, HistoryScreen::class.java)) },
                     onNavigateToRoutes = { startActivity(Intent(this, RoutesScreen::class.java)) },
                     onNavigateToHealth = { startActivity(Intent(this, DogHealthActivity::class.java)) },
-                    onNavigateToAlerts = { startActivity(Intent(this, AlertsActivity::class.java)) }
+                    onNavigateToAlerts = { startActivity(Intent(this, AlertsActivity::class.java)) },
+                    onModeToggle = { mode ->
+                        val modeIntent = Intent(this, DogFitBleService::class.java).apply {
+                            action = DogFitBleService.ACTION_SET_MODE
+                            putExtra(DogFitBleService.EXTRA_MODE, mode)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(modeIntent) else startService(modeIntent)
+                    }
                 )
             }
         }
@@ -162,6 +188,7 @@ class MainActivity : ComponentActivity() {
             addAction(BLE_ACTION_NEW_DATA)
             addAction(BLE_ACTION_STATUS)
             addAction(BLE_ACTION_BATTERY)
+            addAction(BLE_ACTION_MODE_CHANGED)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -366,7 +393,8 @@ fun MainScreen(
     onNavigateToHistory: () -> Unit,
     onNavigateToRoutes: () -> Unit,
     onNavigateToHealth: () -> Unit,
-    onNavigateToAlerts: () -> Unit
+    onNavigateToAlerts: () -> Unit,
+    onModeToggle: (Int) -> Unit
 ) {
     val scrollState = rememberScrollState()
     val profile by viewModel.dogProfile.observeAsState()
@@ -375,6 +403,8 @@ fun MainScreen(
     val activityTimes by viewModel.activityTimes.collectAsState()
     val alerts by viewModel.alerts.observeAsState()
     val bleConnected by viewModel.bleConnected.collectAsState()
+    val currentMode by viewModel.currentMode.collectAsState()
+    val context = LocalContext.current
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -437,6 +467,32 @@ fun MainScreen(
             )
 
             TotalAccumulatedTimeCard(activityTimes = activityTimes)
+
+
+            Button(
+                onClick = {
+                    if (!bleConnected) {
+                        Toast.makeText(context, "Dispositivo desconectado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val nextMode = if (currentMode == BlePacketParser.MODE_INFERENCE) {
+                            BlePacketParser.MODE_CAPTURE
+                        } else {
+                            BlePacketParser.MODE_INFERENCE
+                        }
+                        onModeToggle(nextMode)
+                    }
+                },
+                enabled = bleConnected,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (currentMode == BlePacketParser.MODE_INFERENCE) {
+                        "🔄 Modo: INFERENCIA"
+                    } else {
+                        "🔄 Modo: CAPTURA"
+                    }
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

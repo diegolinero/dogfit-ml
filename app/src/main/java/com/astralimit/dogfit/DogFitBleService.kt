@@ -26,6 +26,11 @@ class DogFitBleService : Service() {
         private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
         private const val BLE_EXTRA_CONNECTED = "connected"
         private const val BLE_EXTRA_BATTERY_PERCENT = "battery_percent"
+        const val ACTION_SET_MODE = "com.astralimit.dogfit.SET_MODE"
+        const val ACTION_MODE_CHANGED = "com.astralimit.dogfit.MODE_CHANGED"
+        const val EXTRA_MODE = "mode"
+        const val EXTRA_SUCCESS = "success"
+        const val EXTRA_ERROR = "error"
     }
 
     private val TAG = "DogFitBleService"
@@ -50,7 +55,13 @@ class DogFitBleService : Service() {
     private var connectInProgress = false
 
     private var bleEstimatedStepsTotal = 0
+    private var currentMode = BlePacketParser.MODE_INFERENCE
+    private var pendingModeCommand: Int? = null
     private var bluetoothStateReceiverRegistered = false
+
+    private val modePrefs by lazy {
+        getSharedPreferences("dogfit_ble_mode", Context.MODE_PRIVATE)
+    }
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -78,18 +89,12 @@ class DogFitBleService : Service() {
 
     private val notifyQueue: ArrayDeque<BluetoothGattCharacteristic> = ArrayDeque()
 
-    // ✅ Record = 10 bytes (t_ms 4 + label 1 + conf 1 + seq 4)
-    private val REC_BYTES = 10
+    private val inferenceRecordBytes = 10
+    private val captureRecordBytes = 12
 
     // Reassembly buffer
     private val rxBuffer = ByteArray(8192)
     private var rxLen = 0
-
-    // ACK state (uint32)
-    private var lastSeqProcessed: Long = -1L
-    private var lastAckSent: Long = -1L
-    private var lastAckSentAtMs: Long = 0
-    private val ackMinIntervalMs = 250L
 
     // Scan state
     private var scanning = false
@@ -144,6 +149,7 @@ class DogFitBleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        currentMode = modePrefs.getInt(EXTRA_MODE, BlePacketParser.MODE_INFERENCE)
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         createNotificationChannel()
@@ -158,9 +164,28 @@ class DogFitBleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_SET_MODE) {
+            handleModeRequest(intent.getIntExtra(EXTRA_MODE, -1))
+            return START_STICKY
+        }
+
         startBleForegroundService()
         startScanning()
         return START_STICKY
+    }
+
+    private fun handleModeRequest(requestedMode: Int) {
+        if (requestedMode != BlePacketParser.MODE_INFERENCE && requestedMode != BlePacketParser.MODE_CAPTURE) {
+            sendModeBroadcast(currentMode, false, "Modo inválido: $requestedMode")
+            return
+        }
+
+        if (!notificationsEnabled || bluetoothGatt == null) {
+            sendModeBroadcast(currentMode, false, "Dispositivo BLE no conectado")
+            return
+        }
+
+        sendModeCommand(requestedMode)
     }
 
     private fun startBleForegroundService() {
@@ -311,6 +336,8 @@ class DogFitBleService : Service() {
         batteryChar = null
         notifyQueue.clear()
         rxLen = 0
+        bleEstimatedStepsTotal = 0
+        pendingModeCommand = null
 
         if (broadcastDisconnected) {
             sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
@@ -470,9 +497,6 @@ class DogFitBleService : Service() {
                 reconnectAttemptCount = 0
 
                 rxLen = 0
-                lastSeqProcessed = -1L
-                lastAckSent = -1L
-                lastAckSentAtMs = 0
                 bleEstimatedStepsTotal = 0
                 notificationsEnabled = false
                 lastBlePayloadAtMs = SystemClock.elapsedRealtime()
@@ -593,6 +617,24 @@ class DogFitBleService : Service() {
                 }
             }
         }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (characteristic.uuid != ACK_CHAR_UUID) return
+            val requestedMode = pendingModeCommand
+            val success = status == BluetoothGatt.GATT_SUCCESS
+            if (success && requestedMode != null) {
+                currentMode = requestedMode
+                modePrefs.edit().putInt(EXTRA_MODE, currentMode).apply()
+            }
+            val error = if (success) null else "write failed status=$status"
+            Log.i(TAG, "Resultado write de modo status=$status requested=$requestedMode current=$currentMode")
+            sendModeBroadcast(currentMode, success, error)
+            pendingModeCommand = null
+        }
     }
 
     private inline fun safelyHandleGattEvent(event: String, gatt: BluetoothGatt, block: () -> Unit) {
@@ -664,9 +706,9 @@ class DogFitBleService : Service() {
         }
 
         if (ackChar == null) {
-            Log.e(TAG, "Característica ABD0 (ACK) no encontrada (sin ACK no hay reliability)")
+            Log.e(TAG, "Característica ABD0 no encontrada (sin comandos de modo)")
         } else {
-            ackChar?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            ackChar?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         }
 
         notifyQueue.clear()
@@ -718,7 +760,7 @@ class DogFitBleService : Service() {
         sendInternalBroadcast(Intent(BLE_ACTION_STATUS).apply {
             putExtra(BLE_EXTRA_CONNECTED, true)
         })
-        maybeSendAck(force = true)
+        sendModeCommand(currentMode)
         val batLevel = batteryChar
         if (batLevel == null) {
             Log.i(TAG, "Battery Level 0x2A19 no encontrado para lectura inicial ($source)")
@@ -757,13 +799,48 @@ class DogFitBleService : Service() {
         })
     }
 
+    private fun sendModeCommand(mode: Int) {
+        val gatt = bluetoothGatt
+        val characteristic = ackChar
+
+        if (gatt == null || characteristic == null || !notificationsEnabled) {
+            sendModeBroadcast(currentMode, false, "No hay conexión BLE lista para comando")
+            return
+        }
+
+        val command = when (mode) {
+            BlePacketParser.MODE_INFERENCE -> byteArrayOf(0x00, 0x00, 0x00, 0x00)
+            BlePacketParser.MODE_CAPTURE -> byteArrayOf(0x01, 0x00, 0x00, 0x00)
+            else -> return
+        }
+
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        characteristic.value = command
+        val launched = gatt.writeCharacteristic(characteristic)
+        Log.i(TAG, "Enviando comando de modo=$mode launched=$launched")
+
+        if (launched) {
+            pendingModeCommand = mode
+        } else {
+            sendModeBroadcast(currentMode, false, "No se pudo iniciar writeCharacteristic")
+        }
+    }
+
+    private fun sendModeBroadcast(mode: Int, success: Boolean, error: String?) {
+        sendInternalBroadcast(Intent(ACTION_MODE_CHANGED).apply {
+            putExtra(EXTRA_MODE, mode)
+            putExtra(EXTRA_SUCCESS, success)
+            if (error != null) putExtra(EXTRA_ERROR, error)
+        })
+    }
+
     // =====================================================
-    // NOTIFY parse 10B/record + ACK uint32
+    // NOTIFY parse according to mode
     // =====================================================
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
         lastBlePayloadAtMs = SystemClock.elapsedRealtime()
-        Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size}")
+        Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size} mode=$currentMode")
 
         if (rxLen + chunk.size > rxBuffer.size) {
             Log.w(TAG, "RX overflow. Reset buffer.")
@@ -773,41 +850,56 @@ class DogFitBleService : Service() {
         System.arraycopy(chunk, 0, rxBuffer, rxLen, chunk.size)
         rxLen += chunk.size
 
+        val recordBytes = if (currentMode == BlePacketParser.MODE_CAPTURE) captureRecordBytes else inferenceRecordBytes
         var offset = 0
-        var processedAny = false
 
-        while (rxLen - offset >= REC_BYTES) {
-            val recordBytes = rxBuffer.copyOfRange(offset, offset + REC_BYTES)
-            val record = BlePacketParser.parseRes(recordBytes).first()
-            val tMs = record.tMs
-            val label = record.label
-            val conf = record.conf
-            val seq = record.seq
+        while (rxLen - offset >= recordBytes) {
+            val payload = rxBuffer.copyOfRange(offset, offset + recordBytes)
 
-            lastSeqProcessed = seq
-            processedAny = true
+            if (currentMode == BlePacketParser.MODE_CAPTURE) {
+                val sample = BlePacketParser.parseCapture(payload).first()
+                Log.d(TAG, "RAW IMU ax=${sample.ax} ay=${sample.ay} az=${sample.az} gx=${sample.gx} gy=${sample.gy} gz=${sample.gz}")
+                sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
+                    putExtra("is_capture", true)
+                    putExtra("ax", sample.ax.toInt())
+                    putExtra("ay", sample.ay.toInt())
+                    putExtra("az", sample.az.toInt())
+                    putExtra("gx", sample.gx.toInt())
+                    putExtra("gy", sample.gy.toInt())
+                    putExtra("gz", sample.gz.toInt())
+                    putExtra("data", JSONObject().apply {
+                        put("mode", "capture")
+                        put("ax", sample.ax.toInt())
+                        put("ay", sample.ay.toInt())
+                        put("az", sample.az.toInt())
+                        put("gx", sample.gx.toInt())
+                        put("gy", sample.gy.toInt())
+                        put("gz", sample.gz.toInt())
+                    }.toString())
+                })
+            } else {
+                val record = BlePacketParser.parseRes(payload).first()
+                val inc = estimateStepsIncrement(record.label, record.conf)
+                bleEstimatedStepsTotal += inc
 
-            val inc = estimateStepsIncrement(label, conf)
-            bleEstimatedStepsTotal += inc
+                sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
+                    putExtra("activity_label", record.label)
+                    putExtra("confidence", record.conf)
+                    putExtra("sequence", record.seq)
+                    putExtra("sensor_time_ms", record.tMs)
+                    putExtra("steps_total", bleEstimatedStepsTotal)
 
-            val intent = Intent(BLE_ACTION_NEW_DATA).apply {
-                putExtra("activity_label", label)
-                putExtra("confidence", conf)
-                putExtra("sequence", seq)
-                putExtra("sensor_time_ms", tMs)
-                putExtra("steps_total", bleEstimatedStepsTotal)
-
-                putExtra("data", JSONObject().apply {
-                    put("act", label)
-                    put("stp", bleEstimatedStepsTotal)
-                    put("conf", conf)
-                    put("seq", seq)
-                    put("t_ms", tMs)
-                }.toString())
+                    putExtra("data", JSONObject().apply {
+                        put("act", record.label)
+                        put("stp", bleEstimatedStepsTotal)
+                        put("conf", record.conf)
+                        put("seq", record.seq)
+                        put("t_ms", record.tMs)
+                    }.toString())
+                })
             }
-            sendInternalBroadcast(intent)
 
-            offset += REC_BYTES
+            offset += recordBytes
         }
 
         if (offset > 0) {
@@ -815,11 +907,13 @@ class DogFitBleService : Service() {
             if (remaining > 0) System.arraycopy(rxBuffer, offset, rxBuffer, 0, remaining)
             rxLen = remaining
         }
-
-        if (processedAny) maybeSendAck(force = false)
     }
 
     private fun onLiveNotify(value: ByteArray, source: String) {
+        if (currentMode == BlePacketParser.MODE_CAPTURE) {
+            Log.d(TAG, "LIVE ignorado en modo captura source=$source")
+            return
+        }
         try {
             lastBlePayloadAtMs = SystemClock.elapsedRealtime()
             val live = BlePacketParser.parseLive(value)
@@ -842,41 +936,6 @@ class DogFitBleService : Service() {
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "LIVE inválido source=$source size=${value.size}", e)
         }
-    }
-
-    private fun maybeSendAck(force: Boolean) {
-        val gatt = bluetoothGatt ?: return
-        val c = ackChar ?: return
-        if (!notificationsEnabled) return
-        if (lastSeqProcessed < 0) return
-
-        val now = SystemClock.elapsedRealtime()
-        val shouldSend = force || (
-            lastSeqProcessed != lastAckSent &&
-                (now - lastAckSentAtMs) >= ackMinIntervalMs
-            )
-        if (!shouldSend) return
-
-        val ack = ByteArray(4)
-        writeUInt32LE(ack, 0, lastSeqProcessed)
-
-        c.value = ack
-        val ok = gatt.writeCharacteristic(c)
-        Log.i(TAG, "ACK enviado seq=$lastSeqProcessed writeOk=$ok")
-        if (ok) {
-            lastAckSent = lastSeqProcessed
-            lastAckSentAtMs = now
-        } else {
-            Log.w(TAG, "ACK writeCharacteristic failed")
-        }
-    }
-
-    private fun writeUInt32LE(dst: ByteArray, offset: Int, value: Long) {
-        val v = value and 0xFFFFFFFFL
-        dst[offset + 0] = (v and 0xFF).toByte()
-        dst[offset + 1] = ((v shr 8) and 0xFF).toByte()
-        dst[offset + 2] = ((v shr 16) and 0xFF).toByte()
-        dst[offset + 3] = ((v shr 24) and 0xFF).toByte()
     }
 
     // label: 0 reposo, 1 caminar, 2 correr
