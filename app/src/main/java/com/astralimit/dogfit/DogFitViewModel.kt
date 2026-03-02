@@ -10,7 +10,9 @@ import com.astralimit.dogfit.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
@@ -195,9 +197,13 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         _currentMode.value = prefs.getInt(keyCurrentMode, BlePacketParser.MODE_INFERENCE)
-        restorePersistedState()
-        updateAllStats()
-        generateInitialAlerts()
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                restorePersistedState()
+            }
+            updateAllStats()
+            generateInitialAlerts()
+        }
     }
 
     // =========================================================

@@ -20,6 +20,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -48,6 +49,9 @@ import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -167,7 +171,12 @@ class MainActivity : ComponentActivity() {
 
         dataCaptureManager = DataCaptureManager(this)
         capturedSessionsState.clear()
-        capturedSessionsState.addAll(dataCaptureManager.listCapturedSessions())
+        lifecycleScope.launch {
+            val capturedSessions = withContext(Dispatchers.IO) {
+                dataCaptureManager.listCapturedSessions()
+            }
+            capturedSessionsState.addAll(capturedSessions)
+        }
 
         setContent {
             DogFitTheme {
