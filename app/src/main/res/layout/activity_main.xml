@@ -27,6 +27,13 @@
             android:layout_height="wrap_content"
             android:entries="@array/activity_labels" />
 
+        <EditText
+            android:id="@+id/etCustomLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Nombre del perro (ej: Max)"
+            android:inputType="text" />
+
         <Button
             android:id="@+id/btnMode"
             android:layout_width="match_parent"
@@ -44,6 +51,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Escanear QR" />
+
+        <Button
+            android:id="@+id/btnExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Exportar" />
 
         <TextView
             android:id="@+id/tvLiveLabel"
@@ -68,12 +81,6 @@
             android:id="@+id/rvCaptured"
             android:layout_width="match_parent"
             android:layout_height="240dp" />
-
-        <Button
-            android:id="@+id/btnExport"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Exportar" />
 
     </LinearLayout>
 </ScrollView>

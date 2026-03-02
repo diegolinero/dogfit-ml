@@ -16,9 +16,17 @@ data class CapturedSample(
     val gz: Int
 )
 
+data class CapturedSession(
+    val file: File,
+    val activityLabel: String,
+    val customLabel: String,
+    val fullLabel: String
+)
+
 class DataCaptureManager(private val context: Context) {
     private var labelName: String = "unlabeled"
     private var labelId: Int = 0
+    private var customLabel: String = ""
     private val samples = mutableListOf<CapturedSample>()
     private var captureStartedAt = 0L
     private var isCapturing = false
@@ -30,6 +38,10 @@ class DataCaptureManager(private val context: Context) {
     fun setActivityLabel(label: String, labelId: Int) {
         this.labelName = label.lowercase().replace(" ", "_")
         this.labelId = labelId
+    }
+
+    fun setCustomLabel(customLabel: String) {
+        this.customLabel = sanitizeForFileName(customLabel)
     }
 
     fun startCapture() {
@@ -57,7 +69,8 @@ class DataCaptureManager(private val context: Context) {
         isCapturing = false
         if (samples.isEmpty()) return null
 
-        val fileName = "${labelName}_${captureStartedAt}.csv"
+        val suffix = customLabel.ifBlank { "sin_detalle" }
+        val fileName = "${labelName}_${suffix}_${captureStartedAt}.csv"
         val outFile = File(captureDir, fileName)
         outFile.bufferedWriter().use { writer ->
             writer.appendLine("timestamp,ax,ay,az,gx,gy,gz")
@@ -70,6 +83,26 @@ class DataCaptureManager(private val context: Context) {
 
     fun listCapturedFiles(): List<File> {
         return captureDir.listFiles()?.sortedByDescending { it.lastModified() } ?: emptyList()
+    }
+
+    fun listCapturedSessions(): List<CapturedSession> {
+        return listCapturedFiles().map { file ->
+            val name = file.nameWithoutExtension
+            val parts = name.split("_")
+            val timestampIndex = parts.indexOfLast { it.toLongOrNull() != null }
+            val activity = parts.firstOrNull().orEmpty().ifBlank { "sin_actividad" }
+            val custom = if (timestampIndex > 1) {
+                parts.subList(1, timestampIndex).joinToString("_")
+            } else {
+                parts.getOrNull(1).orEmpty()
+            }.ifBlank { "sin_detalle" }
+            CapturedSession(
+                file = file,
+                activityLabel = activity,
+                customLabel = custom,
+                fullLabel = "${activity}_${custom}"
+            )
+        }
     }
 
     fun buildShareIntent(file: File): Intent {
@@ -99,4 +132,15 @@ class DataCaptureManager(private val context: Context) {
 
     fun isCapturing(): Boolean = isCapturing
     fun getLabelId(): Int = labelId
+
+    private fun sanitizeForFileName(raw: String): String {
+        val cleaned = raw
+            .lowercase()
+            .trim()
+            .replace(" ", "_")
+            .replace(Regex("[^a-z0-9_-]"), "")
+            .replace(Regex("_+"), "_")
+            .trim('_')
+        return cleaned.take(48)
+    }
 }

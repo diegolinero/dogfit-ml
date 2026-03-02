@@ -5,19 +5,18 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class CapturedDataAdapter(
-    private val onClick: (File) -> Unit
+    private val onClick: (CapturedSession) -> Unit
 ) : RecyclerView.Adapter<CapturedDataAdapter.CapturedViewHolder>() {
 
-    private val files = mutableListOf<File>()
+    private val files = mutableListOf<CapturedSession>()
     private val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-    fun submit(items: List<File>) {
+    fun submit(items: List<CapturedSession>) {
         files.clear()
         files.addAll(items)
         notifyDataSetChanged()
@@ -39,10 +38,10 @@ class CapturedDataAdapter(
         private val title: TextView = itemView.findViewById(android.R.id.text1)
         private val subtitle: TextView = itemView.findViewById(android.R.id.text2)
 
-        fun bind(file: File, sdf: SimpleDateFormat, onClick: (File) -> Unit) {
-            title.text = file.name
-            subtitle.text = "${file.length()} bytes • ${sdf.format(Date(file.lastModified()))}"
-            itemView.setOnClickListener { onClick(file) }
+        fun bind(session: CapturedSession, sdf: SimpleDateFormat, onClick: (CapturedSession) -> Unit) {
+            title.text = session.file.name
+            subtitle.text = "${session.fullLabel} • ${session.file.length()} bytes • ${sdf.format(Date(session.file.lastModified()))}"
+            itemView.setOnClickListener { onClick(session) }
         }
     }
 }

@@ -48,7 +48,6 @@ import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
-import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -145,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
     private var isDataReceiverRegistered = false
     private lateinit var dataCaptureManager: DataCaptureManager
-    private val capturedFilesState = mutableStateListOf<File>()
+    private val capturedSessionsState = mutableStateListOf<CapturedSession>()
 
     private val qrLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -167,8 +166,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         dataCaptureManager = DataCaptureManager(this)
-        capturedFilesState.clear()
-        capturedFilesState.addAll(dataCaptureManager.listCapturedFiles())
+        capturedSessionsState.clear()
+        capturedSessionsState.addAll(dataCaptureManager.listCapturedSessions())
 
         setContent {
             DogFitTheme {
@@ -186,18 +185,27 @@ class MainActivity : ComponentActivity() {
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(modeIntent) else startService(modeIntent)
                     },
-                    capturedFiles = capturedFilesState,
+                    capturedSessions = capturedSessionsState,
                     onScanQr = { qrLauncher.launch(Intent(this, QrScannerActivity::class.java)) },
-                    onCaptureToggle = { selectedLabel, labelId, start ->
+                    onCaptureToggle = captureToggle@{ selectedLabel, labelId, customLabel, start ->
                         if (start) {
+                            if (customLabel.isBlank()) {
+                                Toast.makeText(this, "Completa la etiqueta personalizada", Toast.LENGTH_SHORT).show()
+                                return@captureToggle
+                            }
                             dataCaptureManager.setActivityLabel(selectedLabel, labelId)
+                            dataCaptureManager.setCustomLabel(customLabel)
                             dataCaptureManager.startCapture()
+                            getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("last_custom_label", customLabel)
+                                .apply()
                             Toast.makeText(this, "Captura iniciada", Toast.LENGTH_SHORT).show()
                         } else {
                             val file = dataCaptureManager.stopCapture()
                             if (file != null) {
-                                capturedFilesState.clear()
-                                capturedFilesState.addAll(dataCaptureManager.listCapturedFiles())
+                                capturedSessionsState.clear()
+                                capturedSessionsState.addAll(dataCaptureManager.listCapturedSessions())
                                 Toast.makeText(this, "Captura guardada: ${file.name}", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(this, "No hubo muestras para guardar", Toast.LENGTH_SHORT).show()
@@ -212,8 +220,8 @@ class MainActivity : ComponentActivity() {
                             Toast.makeText(this, "No hay archivos para exportar", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onOpenCapture = { file ->
-                        val shareIntent = dataCaptureManager.buildShareIntent(file)
+                    onOpenCapture = { session ->
+                        val shareIntent = dataCaptureManager.buildShareIntent(session.file)
                         startActivity(Intent.createChooser(shareIntent, "Compartir captura"))
                     }
                 )
@@ -457,11 +465,11 @@ fun MainScreen(
     onNavigateToHealth: () -> Unit,
     onNavigateToAlerts: () -> Unit,
     onModeToggle: (Int) -> Unit,
-    capturedFiles: List<File>,
+    capturedSessions: List<CapturedSession>,
     onScanQr: () -> Unit,
-    onCaptureToggle: (String, Int, Boolean) -> Unit,
+    onCaptureToggle: (String, Int, String, Boolean) -> Unit,
     onExportAll: () -> Unit,
-    onOpenCapture: (File) -> Unit
+    onOpenCapture: (CapturedSession) -> Unit
 ) {
     val scrollState = rememberScrollState()
     val profile by viewModel.dogProfile.observeAsState()
@@ -477,6 +485,13 @@ fun MainScreen(
     val context = LocalContext.current
     val labels = listOf("Descanso", "Caminar", "Correr", "Escaleras")
     var selectedLabel by remember { mutableStateOf(labels.first()) }
+    var customLabel by remember {
+        mutableStateOf(
+            context.getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
+                .getString("last_custom_label", "")
+                .orEmpty()
+        )
+    }
     var capturing by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
@@ -599,6 +614,14 @@ fun MainScreen(
                     }
                 }
 
+                OutlinedTextField(
+                    value = customLabel,
+                    onValueChange = { customLabel = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Etiqueta personalizada") },
+                    placeholder = { Text("Nombre del perro / superficie / notas") }
+                )
+
                 Button(
                     onClick = {
                         if (!bleConnected) {
@@ -606,7 +629,7 @@ fun MainScreen(
                         } else {
                             val labelId = labels.indexOf(selectedLabel).coerceAtLeast(0)
                             val start = !capturing
-                            onCaptureToggle(selectedLabel, labelId, start)
+                            onCaptureToggle(selectedLabel, labelId, customLabel, start)
                             capturing = start
                         }
                     },
@@ -617,10 +640,10 @@ fun MainScreen(
                 Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
 
                 Text("Capturas CSV", fontWeight = FontWeight.Bold)
-                capturedFiles.forEach { file ->
+                capturedSessions.forEach { session ->
                     Text(
-                        text = "• ${file.name}",
-                        modifier = Modifier.fillMaxWidth().clickable { onOpenCapture(file) }
+                        text = "• ${session.file.name} (${session.fullLabel})",
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenCapture(session) }
                     )
                 }
             }
