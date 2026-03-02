@@ -848,7 +848,6 @@ class DogFitBleService : Service() {
     private fun onResultNotify(chunk: ByteArray) {
         if (chunk.isEmpty()) return
         lastBlePayloadAtMs = SystemClock.elapsedRealtime()
-        Log.d(TAG, "onCharacteristicChanged bytes=${chunk.size} mode=$currentMode")
 
         if (chunk.size % captureRecordBytes == 0 && chunk.size % inferenceRecordBytes != 0 && currentMode != BlePacketParser.MODE_CAPTURE) {
             currentMode = BlePacketParser.MODE_CAPTURE
@@ -878,7 +877,6 @@ class DogFitBleService : Service() {
 
             if (currentMode == BlePacketParser.MODE_CAPTURE) {
                 val sample = BlePacketParser.parseCapture(payload).first()
-                Log.d(TAG, "RAW IMU ax=${sample.ax} ay=${sample.ay} az=${sample.az} gx=${sample.gx} gy=${sample.gy} gz=${sample.gz}")
                 sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
                     putExtra("is_capture", true)
                     putExtra("ax", sample.ax.toInt())
@@ -938,7 +936,6 @@ class DogFitBleService : Service() {
         try {
             lastBlePayloadAtMs = SystemClock.elapsedRealtime()
             val live = BlePacketParser.parseLive(value)
-            Log.i(TAG, "received LIVE notify source=$source tMs=${live.tMs} label=${live.label} conf=${live.conf}")
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
                 putExtra("activity_label", live.label)
                 putExtra("confidence", live.conf)

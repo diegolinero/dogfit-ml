@@ -122,10 +122,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 BLE_ACTION_NEW_DATA -> {
-                    // Si recibimos datos del collar, forzamos estado conectado en UI.
-                    // Esto evita quedar en "desconectado" cuando el broadcast de estado
-                    // se emitió antes de registrar el receiver de la Activity.
-                    viewModel.updateBleConnection(true)
+                    // Si recibimos datos del collar, forzamos estado conectado en UI
+                    // solo cuando cambia para evitar trabajo innecesario en cada paquete.
+                    if (!viewModel.bleConnected.value) {
+                        viewModel.updateBleConnection(true)
+                    }
 
                     // Firmware (binario -> extras)
                     if (intent.getBooleanExtra("is_capture", false)) {
@@ -356,15 +357,6 @@ class MainActivity : ComponentActivity() {
         val sensorTimeMs = intent.getLongExtra("sensor_time_ms", 0L)
         val batteryRaw = intent.getIntExtra("battery_percent", -1)
         val battery = batteryRaw.takeIf { it in 0..100 }
-        val sequence = intent.getLongExtra("sequence", -1L)
-        val isLive = intent.getBooleanExtra("is_live", false)
-
-        Log.d(
-            TAG,
-            "BLE paquete completo (firmware): act=$activity conf=$confidence bat_raw=$batteryRaw seq=$sequence sensor_time_ms=$sensorTimeMs steps_total=$stepsTotal is_live=$isLive"
-        )
-        Log.d(TAG, "BLE batería parseada (firmware): raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
-
         if (sensorTimeMs > 0L) {
             viewModel.onBleSample(activity, confidence, sensorTimeMs)
         } else {
