@@ -62,6 +62,9 @@ class MainActivity : ComponentActivity() {
         private const val BLE_ACTION_BATTERY = "com.astralimit.dogfit.BLE_BATTERY"
         private const val BLE_EXTRA_CONNECTED = "connected"
         private const val BLE_ACTION_MODE_CHANGED = "com.astralimit.dogfit.MODE_CHANGED"
+        private const val PREFS_BATTERY_DIALOG = "dogfit_battery_dialog"
+        private const val KEY_LAST_PROMPT_AT = "last_prompt_at"
+        private const val BATTERY_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000L
     }
 
     private val viewModel: DogFitViewModel by viewModels {
@@ -149,6 +152,7 @@ class MainActivity : ComponentActivity() {
     private var isDataReceiverRegistered = false
     private lateinit var dataCaptureManager: DataCaptureManager
     private val capturedSessionsState = mutableStateListOf<CapturedSession>()
+    private var batteryOptimizationDialog: AlertDialog? = null
 
     private val qrLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -239,7 +243,6 @@ class MainActivity : ComponentActivity() {
 
         handleNotificationIntent(intent)
         ensureBleReadyAndStartService()
-        requestIgnoreBatteryOptimizations()
     }
 
     override fun onStart() {
@@ -248,6 +251,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        batteryOptimizationDialog?.dismiss()
+        batteryOptimizationDialog = null
         if (isDataReceiverRegistered) {
             try {
                 unregisterReceiver(dataReceiver)
@@ -257,6 +262,11 @@ class MainActivity : ComponentActivity() {
             isDataReceiverRegistered = false
         }
         super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        requestIgnoreBatteryOptimizations()
     }
 
     private fun registerDataReceiverIfNeeded() {
@@ -400,22 +410,32 @@ class MainActivity : ComponentActivity() {
 
     private fun requestIgnoreBatteryOptimizations() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        if (isFinishing || isDestroyed) return
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
         val packageName = packageName
 
         if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+        if (batteryOptimizationDialog?.isShowing == true) return
 
-        AlertDialog.Builder(this)
+        val promptPrefs = getSharedPreferences(PREFS_BATTERY_DIALOG, Context.MODE_PRIVATE)
+        val lastPromptAt = promptPrefs.getLong(KEY_LAST_PROMPT_AT, 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastPromptAt < BATTERY_PROMPT_COOLDOWN_MS) return
+
+        batteryOptimizationDialog = AlertDialog.Builder(this)
             .setTitle("Optimización de batería")
             .setMessage("Para evitar desconexiones cuando la pantalla está apagada, permite que DogFit ignore optimizaciones de batería. ¿Quieres configurarlo ahora?")
             .setPositiveButton("Sí") { _, _ ->
+                promptPrefs.edit().putLong(KEY_LAST_PROMPT_AT, System.currentTimeMillis()).apply()
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = Uri.parse("package:$packageName")
                 }
                 startActivity(intent)
             }
-            .setNegativeButton("Ahora no", null)
+            .setNegativeButton("Ahora no") { _, _ ->
+                promptPrefs.edit().putLong(KEY_LAST_PROMPT_AT, System.currentTimeMillis()).apply()
+            }
             .show()
     }
 
