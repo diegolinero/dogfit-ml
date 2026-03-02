@@ -37,6 +37,15 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private val _currentMode = MutableStateFlow(BlePacketParser.MODE_INFERENCE)
     val currentMode: StateFlow<Int> = _currentMode.asStateFlow()
 
+    private val _liveLabel = MutableStateFlow("--")
+    val liveLabel: StateFlow<String> = _liveLabel.asStateFlow()
+
+    private val _liveConfidence = MutableStateFlow(0)
+    val liveConfidence: StateFlow<Int> = _liveConfidence.asStateFlow()
+
+    private val _liveImuAxes = MutableStateFlow(IntArray(6) { 0 })
+    val liveImuAxes: StateFlow<IntArray> = _liveImuAxes.asStateFlow()
+
     // ✅ RESTAURADO: lo usan otras pantallas
     private val _activityTimes = MutableStateFlow<Map<Int, Long>>(emptyMap())
     val activityTimes: StateFlow<Map<Int, Long>> = _activityTimes.asStateFlow()
@@ -339,6 +348,22 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             prefs.edit().putInt(keyCurrentMode, mode).apply()
             Log.d("DogFitViewModel", "Modo BLE actualizado: $mode")
         }
+    }
+
+
+    fun updateLiveClassification(label: Int, confidence: Int) {
+        _liveLabel.value = when (label) {
+            0 -> "Descanso"
+            1 -> "Caminar"
+            2 -> "Correr"
+            3 -> "Escaleras"
+            else -> "Desconocido"
+        }
+        _liveConfidence.value = confidence.coerceIn(0, 100)
+    }
+
+    fun updateLiveImu(ax: Int, ay: Int, az: Int, gx: Int, gy: Int, gz: Int) {
+        _liveImuAxes.value = intArrayOf(ax, ay, az, gx, gy, gz)
     }
 
     // =========================================================

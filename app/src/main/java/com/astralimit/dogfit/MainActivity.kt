@@ -48,6 +48,7 @@ import com.astralimit.dogfit.ui.theme.DogFitTheme
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -122,6 +123,14 @@ class MainActivity : ComponentActivity() {
 
                     // Firmware (binario -> extras)
                     if (intent.getBooleanExtra("is_capture", false)) {
+                        val ax = intent.getIntExtra("ax", 0)
+                        val ay = intent.getIntExtra("ay", 0)
+                        val az = intent.getIntExtra("az", 0)
+                        val gx = intent.getIntExtra("gx", 0)
+                        val gy = intent.getIntExtra("gy", 0)
+                        val gz = intent.getIntExtra("gz", 0)
+                        viewModel.updateLiveImu(ax, ay, az, gx, gy, gz)
+                        intent.getByteArrayExtra("capture_raw")?.let { dataCaptureManager.addRawSample(it) }
                         Log.d(TAG, "Muestra RAW IMU recibida en UI")
                     } else if (intent.hasExtra("activity_label")) {
                         parseFirmwarePayload(intent)
@@ -135,9 +144,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private var isDataReceiverRegistered = false
+    private lateinit var dataCaptureManager: DataCaptureManager
+    private val capturedFilesState = mutableStateListOf<File>()
+
+    private val qrLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val qrData = result.data?.getStringExtra(QrScannerActivity.EXTRA_QR_DATA).orEmpty()
+            if (qrData.isNotBlank()) {
+                val qrIntent = Intent(this, DogFitBleService::class.java).apply {
+                    action = DogFitBleService.ACTION_CONFIGURE_QR
+                    putExtra(DogFitBleService.EXTRA_QR_DATA, qrData)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(qrIntent) else startService(qrIntent)
+                Toast.makeText(this, "Configuración QR aplicada", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        dataCaptureManager = DataCaptureManager(this)
+        capturedFilesState.clear()
+        capturedFilesState.addAll(dataCaptureManager.listCapturedFiles())
 
         setContent {
             DogFitTheme {
@@ -154,6 +185,36 @@ class MainActivity : ComponentActivity() {
                             putExtra(DogFitBleService.EXTRA_MODE, mode)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(modeIntent) else startService(modeIntent)
+                    },
+                    capturedFiles = capturedFilesState,
+                    onScanQr = { qrLauncher.launch(Intent(this, QrScannerActivity::class.java)) },
+                    onCaptureToggle = { selectedLabel, labelId, start ->
+                        if (start) {
+                            dataCaptureManager.setActivityLabel(selectedLabel, labelId)
+                            dataCaptureManager.startCapture()
+                            Toast.makeText(this, "Captura iniciada", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val file = dataCaptureManager.stopCapture()
+                            if (file != null) {
+                                capturedFilesState.clear()
+                                capturedFilesState.addAll(dataCaptureManager.listCapturedFiles())
+                                Toast.makeText(this, "Captura guardada: ${file.name}", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "No hubo muestras para guardar", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onExportAll = {
+                        val shareIntent = dataCaptureManager.buildShareAllIntent()
+                        if (shareIntent != null) {
+                            startActivity(Intent.createChooser(shareIntent, "Exportar CSV"))
+                        } else {
+                            Toast.makeText(this, "No hay archivos para exportar", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onOpenCapture = { file ->
+                        val shareIntent = dataCaptureManager.buildShareIntent(file)
+                        startActivity(Intent.createChooser(shareIntent, "Compartir captura"))
                     }
                 )
             }
@@ -281,6 +342,7 @@ class MainActivity : ComponentActivity() {
         } else {
             viewModel.updateActivity(activity)
         }
+        viewModel.updateLiveClassification(activity, confidence)
 
         if (intent.hasExtra("steps_total")) {
             viewModel.updateStepsFromBle(stepsTotal)
@@ -394,7 +456,12 @@ fun MainScreen(
     onNavigateToRoutes: () -> Unit,
     onNavigateToHealth: () -> Unit,
     onNavigateToAlerts: () -> Unit,
-    onModeToggle: (Int) -> Unit
+    onModeToggle: (Int) -> Unit,
+    capturedFiles: List<File>,
+    onScanQr: () -> Unit,
+    onCaptureToggle: (String, Int, Boolean) -> Unit,
+    onExportAll: () -> Unit,
+    onOpenCapture: (File) -> Unit
 ) {
     val scrollState = rememberScrollState()
     val profile by viewModel.dogProfile.observeAsState()
@@ -404,7 +471,14 @@ fun MainScreen(
     val alerts by viewModel.alerts.observeAsState()
     val bleConnected by viewModel.bleConnected.collectAsState()
     val currentMode by viewModel.currentMode.collectAsState()
+    val liveLabel by viewModel.liveLabel.collectAsState()
+    val liveConfidence by viewModel.liveConfidence.collectAsState()
+    val liveImu by viewModel.liveImuAxes.collectAsState()
     val context = LocalContext.current
+    val labels = listOf("Descanso", "Caminar", "Correr", "Escaleras")
+    var selectedLabel by remember { mutableStateOf(labels.first()) }
+    var capturing by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -492,6 +566,63 @@ fun MainScreen(
                         "🔄 Modo: CAPTURA"
                     }
                 )
+            }
+
+            Button(onClick = onScanQr, modifier = Modifier.fillMaxWidth()) {
+                Text("Escanear QR")
+            }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Tiempo real", fontWeight = FontWeight.Bold)
+                    Text("Label: $liveLabel")
+                    Text("Confianza: $liveConfidence%")
+                    LinearProgressIndicator(progress = { liveConfidence / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text("IMU ax:${liveImu[0]} ay:${liveImu[1]} az:${liveImu[2]} gx:${liveImu[3]} gy:${liveImu[4]} gz:${liveImu[5]}")
+                }
+            }
+
+            if (currentMode == BlePacketParser.MODE_CAPTURE) {
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+                    OutlinedTextField(
+                        value = selectedLabel,
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier.menuAnchor().fillMaxWidth().clickable { expanded = true },
+                        label = { Text("Actividad") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+                    )
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        labels.forEach { label ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = { selectedLabel = label; expanded = false })
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        if (!bleConnected) {
+                            Toast.makeText(context, "Conecta el dispositivo", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val labelId = labels.indexOf(selectedLabel).coerceAtLeast(0)
+                            val start = !capturing
+                            onCaptureToggle(selectedLabel, labelId, start)
+                            capturing = start
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = bleConnected
+                ) { Text(if (capturing) "Detener captura" else "Iniciar captura") }
+
+                Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
+
+                Text("Capturas CSV", fontWeight = FontWeight.Bold)
+                capturedFiles.forEach { file ->
+                    Text(
+                        text = "• ${file.name}",
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenCapture(file) }
+                    )
+                }
             }
 
             Row(

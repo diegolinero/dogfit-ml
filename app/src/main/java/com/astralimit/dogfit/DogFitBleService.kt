@@ -31,6 +31,8 @@ class DogFitBleService : Service() {
         const val EXTRA_MODE = "mode"
         const val EXTRA_SUCCESS = "success"
         const val EXTRA_ERROR = "error"
+        const val ACTION_CONFIGURE_QR = "com.astralimit.dogfit.CONFIGURE_QR"
+        const val EXTRA_QR_DATA = "qr_data"
     }
 
     private val TAG = "DogFitBleService"
@@ -166,6 +168,12 @@ class DogFitBleService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_SET_MODE) {
             handleModeRequest(intent.getIntExtra(EXTRA_MODE, -1))
+            return START_STICKY
+        }
+
+        if (intent?.action == ACTION_CONFIGURE_QR) {
+            val qrData = intent.getStringExtra(EXTRA_QR_DATA).orEmpty()
+            configureFromQR(qrData)
             return START_STICKY
         }
 
@@ -867,6 +875,7 @@ class DogFitBleService : Service() {
                     putExtra("gx", sample.gx.toInt())
                     putExtra("gy", sample.gy.toInt())
                     putExtra("gz", sample.gz.toInt())
+                    putExtra("capture_raw", payload)
                     putExtra("data", JSONObject().apply {
                         put("mode", "capture")
                         put("ax", sample.ax.toInt())
@@ -948,6 +957,27 @@ class DogFitBleService : Service() {
         }
         val scaled = (base * (confidence / 100f)).toInt()
         return scaled.coerceAtLeast(if (base == 0) 0 else 1)
+    }
+
+
+    fun configureFromQR(qrData: String) {
+        if (qrData.isBlank()) {
+            Log.w(TAG, "QR vacío: configuración ignorada")
+            return
+        }
+
+        val parts = qrData.split("|")
+        val deviceName = parts.getOrNull(0).orEmpty()
+        val userId = parts.getOrNull(1).orEmpty()
+        val calibrationData = parts.getOrNull(2).orEmpty()
+
+        modePrefs.edit()
+            .putString("qr_device_name", deviceName)
+            .putString("qr_user_id", userId)
+            .putString("qr_calibration", calibrationData)
+            .apply()
+
+        Log.i(TAG, "QR configurado device=$deviceName user=$userId calibration=${calibrationData.take(24)}")
     }
 
     private fun createNotificationChannel() {

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="activity_labels">
+        <item>Descanso</item>
+        <item>Caminar</item>
+        <item>Correr</item>
+        <item>Escaleras</item>
+    </string-array>
+</resources>
