@@ -101,9 +101,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 BLE_ACTION_BATTERY -> {
-                    val batteryRaw = intent.getIntExtra("battery_percent", -1)
-                    val battery = batteryRaw.takeIf { it in 0..100 }
-                    Log.d(TAG, "BLE batería BAS: raw=$batteryRaw parsed=${battery ?: "sin-cambio"}")
+                    val battery = intent.getIntExtra("battery_percent", -1).takeIf { it in 0..100 }
                     viewModel.updateBattery(battery)
                 }
 

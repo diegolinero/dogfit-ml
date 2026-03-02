@@ -297,7 +297,6 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 else -> "❓ Desconocido"
             }
             _activityState.value = "Actividad: $txt"
-            Log.d("DogFitViewModel", "Actividad actualizada: $normalized")
         }
     }
 
@@ -340,7 +339,6 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 pendingStableLabel = null
                 pendingSinceMs = 0L
             }
-            Log.d("DogFitViewModel", "BLE conectado: $connected")
         }
     }
 
@@ -350,7 +348,6 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             if (mode != BlePacketParser.MODE_INFERENCE && mode != BlePacketParser.MODE_CAPTURE) return@launch
             _currentMode.value = mode
             prefs.edit().putInt(keyCurrentMode, mode).apply()
-            Log.d("DogFitViewModel", "Modo BLE actualizado: $mode")
         }
     }
 

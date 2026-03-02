@@ -149,6 +149,10 @@ class DogFitBleService : Service() {
     private var reconnectAttemptCount = 0
     private var reconnectRunnable: Runnable? = null
 
+    // Si hay stream LIVE activo, ignoramos RES en inferencia para evitar backlog/buffer antiguo.
+    private var lastLiveNotifyAtMs: Long = 0L
+    private val livePriorityWindowMs = 5_000L
+
     override fun onCreate() {
         super.onCreate()
         currentMode = modePrefs.getInt(EXTRA_MODE, BlePacketParser.MODE_INFERENCE)
@@ -897,25 +901,28 @@ class DogFitBleService : Service() {
                     }.toString())
                 })
             } else {
-                val record = BlePacketParser.parseRes(payload).first()
-                val inc = estimateStepsIncrement(record.label, record.conf)
-                bleEstimatedStepsTotal += inc
+                val hasRecentLive = (SystemClock.elapsedRealtime() - lastLiveNotifyAtMs) <= livePriorityWindowMs
+                if (!hasRecentLive) {
+                    val record = BlePacketParser.parseRes(payload).first()
+                    val inc = estimateStepsIncrement(record.label, record.conf)
+                    bleEstimatedStepsTotal += inc
 
-                sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
-                    putExtra("activity_label", record.label)
-                    putExtra("confidence", record.conf)
-                    putExtra("sequence", record.seq)
-                    putExtra("sensor_time_ms", record.tMs)
-                    putExtra("steps_total", bleEstimatedStepsTotal)
+                    sendInternalBroadcast(Intent(BLE_ACTION_NEW_DATA).apply {
+                        putExtra("activity_label", record.label)
+                        putExtra("confidence", record.conf)
+                        putExtra("sequence", record.seq)
+                        putExtra("sensor_time_ms", record.tMs)
+                        putExtra("steps_total", bleEstimatedStepsTotal)
 
-                    putExtra("data", JSONObject().apply {
-                        put("act", record.label)
-                        put("stp", bleEstimatedStepsTotal)
-                        put("conf", record.conf)
-                        put("seq", record.seq)
-                        put("t_ms", record.tMs)
-                    }.toString())
-                })
+                        putExtra("data", JSONObject().apply {
+                            put("act", record.label)
+                            put("stp", bleEstimatedStepsTotal)
+                            put("conf", record.conf)
+                            put("seq", record.seq)
+                            put("t_ms", record.tMs)
+                        }.toString())
+                    })
+                }
             }
 
             offset += recordBytes
@@ -935,6 +942,7 @@ class DogFitBleService : Service() {
         }
         try {
             lastBlePayloadAtMs = SystemClock.elapsedRealtime()
+            lastLiveNotifyAtMs = lastBlePayloadAtMs
             val live = BlePacketParser.parseLive(value)
             val intent = Intent(BLE_ACTION_NEW_DATA).apply {
                 putExtra("activity_label", live.label)
