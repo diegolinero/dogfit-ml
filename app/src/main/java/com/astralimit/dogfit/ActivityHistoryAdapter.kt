@@ -36,17 +36,6 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
 
         val activityType = when (item.activityType) {
             0 -> {
-                // Icono para reposo
-                try {
-                    holder.activityIcon.setImageResource(R.drawable.ic_rest)
-                } catch (e: Exception) {
-                    // Si no existe el icono, usa uno del sistema
-                    holder.activityIcon.setImageResource(android.R.drawable.ic_lock_idle_lock)
-                }
-                context.getString(R.string.activity_rest)
-            }
-            1 -> {
-                // Icono para caminata
                 try {
                     holder.activityIcon.setImageResource(R.drawable.ic_walk)
                 } catch (e: Exception) {
@@ -54,8 +43,7 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
                 }
                 context.getString(R.string.activity_walk)
             }
-            2 -> {
-                // Icono para carrera
+            1 -> {
                 try {
                     holder.activityIcon.setImageResource(R.drawable.ic_run)
                 } catch (e: Exception) {
@@ -63,8 +51,15 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
                 }
                 context.getString(R.string.activity_run)
             }
+            2 -> {
+                try {
+                    holder.activityIcon.setImageResource(R.drawable.ic_rest)
+                } catch (e: Exception) {
+                    holder.activityIcon.setImageResource(android.R.drawable.ic_lock_idle_lock)
+                }
+                context.getString(R.string.activity_rest)
+            }
             3 -> {
-                // Icono para juego
                 try {
                     holder.activityIcon.setImageResource(R.drawable.ic_play)
                 } catch (e: Exception) {
@@ -73,7 +68,6 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
                 context.getString(R.string.activity_play)
             }
             else -> {
-                // Icono desconocido
                 try {
                     holder.activityIcon.setImageResource(R.drawable.ic_unknown)
                 } catch (e: Exception) {
@@ -83,11 +77,10 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
             }
         }
 
-        // Establecer color según actividad
         val colorRes = when (item.activityType) {
-            0 -> R.color.activity_rest
-            1 -> R.color.activity_walk
-            2 -> R.color.activity_run
+            0 -> R.color.activity_walk
+            1 -> R.color.activity_run
+            2 -> R.color.activity_rest
             3 -> R.color.activity_play
             else -> R.color.activity_unknown
         }
@@ -96,7 +89,7 @@ class ActivityHistoryAdapter(private var data: List<DogActivityData>) :
             val color = ContextCompat.getColor(context, colorRes)
             holder.activityIcon.setColorFilter(color)
         } catch (e: Exception) {
-            // Si falla el color, usa el default
+            // noop
         }
 
         holder.activityText.text = activityType

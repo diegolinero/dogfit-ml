@@ -496,7 +496,7 @@ fun MainScreen(
     onScanQr: () -> Unit,
     onCaptureToggle: (String, Int, String, Boolean) -> Unit,
     onExportAll: () -> Unit,
-    onUploadEdgeImpulse: () -> String,
+    onUploadEdgeImpulse: suspend () -> String,
     onOpenCapture: (CapturedSession) -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -511,7 +511,7 @@ fun MainScreen(
     val liveConfidence by viewModel.liveConfidence.collectAsState()
     val liveImu by viewModel.liveImuAxes.collectAsState()
     val context = LocalContext.current
-    val labels = listOf("Descanso", "Caminar", "Correr", "Escaleras")
+    val labels = listOf("Caminar", "Correr", "Reposo", "Escaleras")
     var selectedLabel by remember {
         mutableStateOf(
             context.getSharedPreferences("dogfit_capture_prefs", Context.MODE_PRIVATE)
@@ -679,8 +679,7 @@ fun MainScreen(
                         uploading = true
                         uploadStatus = "Subiendo capturas..."
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { onUploadEdgeImpulse() }
-                            uploadStatus = result
+                            uploadStatus = onUploadEdgeImpulse()
                             uploading = false
                         }
                     },
@@ -773,16 +772,16 @@ fun ActivityDistributionCard(
     activityTimes: Map<Int, Long>,
     currentStateLabel: String
 ) {
-    val restSeconds = activityTimes[0] ?: 0L
-    val walkSeconds = activityTimes[1] ?: 0L
-    val runSeconds = activityTimes[2] ?: 0L
+    val walkSeconds = activityTimes[0] ?: 0L
+    val runSeconds = activityTimes[1] ?: 0L
+    val restSeconds = activityTimes[2] ?: 0L
     val playSeconds = activityTimes[3] ?: 0L
     val totalSeconds = (restSeconds + walkSeconds + runSeconds + playSeconds).coerceAtLeast(1L)
 
     val segments = listOf(
-        restSeconds to Color(0xFF9E9E9E),
         walkSeconds to Color(0xFF4CAF50),
         runSeconds to Color(0xFFFFC107),
+        restSeconds to Color(0xFF9E9E9E),
         playSeconds to Color(0xFFFF5722)
     )
 

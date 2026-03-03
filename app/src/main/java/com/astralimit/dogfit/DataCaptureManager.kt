@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class CapturedSample(
     val timestamp: Long,
@@ -145,10 +147,10 @@ class DataCaptureManager(
         }
     }
 
-    fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult {
+    suspend fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult = withContext(Dispatchers.IO) {
         val files = listCapturedFiles()
-        if (files.isEmpty()) return EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
-        if (apiKey.isBlank()) return EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
+        if (files.isEmpty()) return@withContext EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
+        if (apiKey.isBlank()) return@withContext EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
 
         var uploaded = 0
         var failed = 0
@@ -167,7 +169,7 @@ class DataCaptureManager(
         } else {
             "Subida parcial: $uploaded/${files.size} (fallaron $failed)${if (lastError.isBlank()) "" else ". Último error: $lastError"}"
         }
-        return EdgeImpulseUploadResult(uploaded, failed, message)
+        EdgeImpulseUploadResult(uploaded, failed, message)
     }
 
     private fun uploadSingleFileToEdgeImpulse(file: File, apiKey: String): Pair<Boolean, String> {
