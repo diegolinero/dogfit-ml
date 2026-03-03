@@ -104,7 +104,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     private val recentLabels = ArrayDeque<Int>()
     private val recentMax = 4
-    private var stableLabel = 0
+    private var stableLabel = 2
     private var pendingStableLabel: Int? = null
     private var pendingSinceMs: Long = 0L
     private val confThreshold = 60
@@ -216,7 +216,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     fun onBleSample(label: Int, confidence: Int, sensorTimeMs: Long) {
         viewModelScope.launch {
             val raw = label.coerceIn(0, 3)
-            val cleaned = if (confidence < confThreshold) 0 else raw
+            val cleaned = if (confidence < confThreshold) 2 else raw
 
             val prev = lastSensorMs
             if (prev == null) {
@@ -241,7 +241,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             hasBleTimingForToday = true
 
             if (cleaned in 0..3) activityMsToday[cleaned] += dt
-            if (cleaned in 1..3) activeMsToday += dt
+            if (cleaned == 0 || cleaned == 1 || cleaned == 3) activeMsToday += dt
             persistRuntimeState()
 
             val stable = pushAndGetStableLabel(cleaned, sensorTimeMs)
@@ -296,9 +296,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             _activityLiveData.value = normalized
 
             val txt = when (normalized) {
-                0 -> "🛌 Reposo"
-                1 -> "🚶 Caminata"
-                2 -> "🏃 Carrera"
+                0 -> "🚶 Caminata"
+                1 -> "🏃 Carrera"
+                2 -> "🛌 Reposo"
                 3 -> "🎾 Juego"
                 else -> "❓ Desconocido"
             }
@@ -341,7 +341,7 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 _activityValue.value = null
                 lastSensorMs = null
                 recentLabels.clear()
-                stableLabel = 0
+                stableLabel = 2
                 pendingStableLabel = null
                 pendingSinceMs = 0L
             }
@@ -360,9 +360,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateLiveClassification(label: Int, confidence: Int) {
         _liveLabel.value = when (label) {
-            0 -> "Descanso"
-            1 -> "Caminar"
-            2 -> "Correr"
+            0 -> "Caminar"
+            1 -> "Correr"
+            2 -> "Reposo"
             3 -> "Escaleras"
             else -> "Desconocido"
         }
@@ -419,9 +419,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                     timestamp = System.currentTimeMillis(),
                     activityType = activityType,
                     intensity = when (activityType) {
-                        0 -> 0.1f
-                        1 -> 0.5f
-                        2 -> 0.9f
+                        0 -> 0.5f
+                        1 -> 0.9f
+                        2 -> 0.1f
                         3 -> 0.7f
                         else -> 0.3f
                     },
@@ -484,9 +484,9 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
                 val min = (ms / 60_000L).toInt()
                 if (min > 0) activityDistribution[name] = min
             }
-            putMin("Reposo", activityMsToday[0])
-            putMin("Caminata", activityMsToday[1])
-            putMin("Carrera", activityMsToday[2])
+            putMin("Caminata", activityMsToday[0])
+            putMin("Carrera", activityMsToday[1])
+            putMin("Reposo", activityMsToday[2])
             putMin("Juego", activityMsToday[3])
 
             // ✅ activityTimes: segundos (como lo estabas usando)
@@ -498,14 +498,14 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
             )
         } else {
             // Fallback (histórico viejo)
-            activeMinutes = todayData.count { it.activityType in 1..3 } * 5
-            restMinutes = todayData.count { it.activityType == 0 } * 5
+            activeMinutes = todayData.count { it.activityType == 0 || it.activityType == 1 || it.activityType == 3 } * 5
+            restMinutes = todayData.count { it.activityType == 2 } * 5
 
             todayData.forEach { data ->
                 val name = when (data.activityType) {
-                    0 -> "Reposo"
-                    1 -> "Caminata"
-                    2 -> "Carrera"
+                    0 -> "Caminata"
+                    1 -> "Carrera"
+                    2 -> "Reposo"
                     3 -> "Juego"
                     else -> "Desconocido"
                 }

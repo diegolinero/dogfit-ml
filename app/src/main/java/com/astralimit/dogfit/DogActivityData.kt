@@ -9,7 +9,7 @@ data class DogActivityData(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
-    val activityType: Int = 0, // 0=reposo, 1=caminata, 2=carrera, 3=juego
+    val activityType: Int = 0, // 0=caminata, 1=carrera, 2=reposo, 3=juego
     val intensity: Float = 0f, // 0.0 a 1.0
     val steps: Int = 0,
     val estimatedDistance: Float = 0f,
@@ -22,9 +22,9 @@ data class DogActivityData(
 ) {
     fun getActivityTypeString(): String {
         return when(activityType) {
-            0 -> "Reposo"
-            1 -> "Caminata"
-            2 -> "Carrera"
+            0 -> "Caminata"
+            1 -> "Carrera"
+            2 -> "Reposo"
             3 -> "Juego"
             else -> "Desconocido"
         }
@@ -32,9 +32,9 @@ data class DogActivityData(
 
     fun getActivityEmoji(): String {
         return when(activityType) {
-            0 -> "🛌"
-            1 -> "🚶"
-            2 -> "🏃"
+            0 -> "🚶"
+            1 -> "🏃"
+            2 -> "🛌"
             3 -> "🎾"
             else -> "❓"
         }

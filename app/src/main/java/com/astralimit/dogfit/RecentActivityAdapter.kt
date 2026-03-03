@@ -29,57 +29,43 @@ class RecentActivityAdapter(private var data: List<DogActivityData>) :
         val item = data[position]
         val context = holder.itemView.context
 
-        // Configurar icono según tipo de actividad
         when (item.activityType) {
-            0 -> { // Reposo
-                holder.activityIcon.setImageResource(R.drawable.ic_rest)
-                holder.activityIcon.setColorFilter(
-                    context.getColor(R.color.activity_rest)
-                )
-                holder.activityTypeText.text = context.getString(R.string.activity_rest)
-            }
-            1 -> { // Caminata
+            0 -> { // Caminata
                 holder.activityIcon.setImageResource(R.drawable.ic_walk)
-                holder.activityIcon.setColorFilter(
-                    context.getColor(R.color.activity_walk)
-                )
+                holder.activityIcon.setColorFilter(context.getColor(R.color.activity_walk))
                 holder.activityTypeText.text = context.getString(R.string.activity_walk)
             }
-            2 -> { // Carrera
+            1 -> { // Carrera
                 holder.activityIcon.setImageResource(R.drawable.ic_run)
-                holder.activityIcon.setColorFilter(
-                    context.getColor(R.color.activity_run)
-                )
+                holder.activityIcon.setColorFilter(context.getColor(R.color.activity_run))
                 holder.activityTypeText.text = context.getString(R.string.activity_run)
+            }
+            2 -> { // Reposo
+                holder.activityIcon.setImageResource(R.drawable.ic_rest)
+                holder.activityIcon.setColorFilter(context.getColor(R.color.activity_rest))
+                holder.activityTypeText.text = context.getString(R.string.activity_rest)
             }
             3 -> { // Juego
                 holder.activityIcon.setImageResource(R.drawable.ic_play)
-                holder.activityIcon.setColorFilter(
-                    context.getColor(R.color.activity_play)
-                )
+                holder.activityIcon.setColorFilter(context.getColor(R.color.activity_play))
                 holder.activityTypeText.text = context.getString(R.string.activity_play)
             }
             else -> {
                 holder.activityIcon.setImageResource(R.drawable.ic_unknown)
-                holder.activityIcon.setColorFilter(
-                    context.getColor(R.color.activity_unknown)
-                )
+                holder.activityIcon.setColorFilter(context.getColor(R.color.activity_unknown))
                 holder.activityTypeText.text = context.getString(R.string.activity_unknown)
             }
         }
 
-        // Configurar hora
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         holder.activityTimeText.text = timeFormat.format(Date(item.timestamp))
-
-        // Configurar duración
         holder.stepsText.text = "${item.durationMinutes} min"
     }
 
     override fun getItemCount() = data.size
 
     fun updateData(newData: List<DogActivityData>) {
-        data = newData.takeLast(5).reversed() // Mostrar las 5 más recientes
+        data = newData.takeLast(5).reversed()
         notifyDataSetChanged()
     }
 }

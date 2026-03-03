@@ -5,10 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class CapturedSample(
     val timestamp: Long,
@@ -35,7 +33,10 @@ data class CapturedSession(
     val fullLabel: String
 )
 
-class DataCaptureManager(private val context: Context) {
+class DataCaptureManager(
+    private val context: Context,
+    private val edgeImpulseUploader: EdgeImpulseUploader = EdgeImpulseUploader()
+) {
     private var labelName: String = "unlabeled"
     private var labelId: Int = 0
     private var customLabel: String = ""
@@ -146,10 +147,10 @@ class DataCaptureManager(private val context: Context) {
         }
     }
 
-    fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult {
+    suspend fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult = withContext(Dispatchers.IO) {
         val files = listCapturedFiles()
-        if (files.isEmpty()) return EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
-        if (apiKey.isBlank()) return EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
+        if (files.isEmpty()) return@withContext EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
+        if (apiKey.isBlank()) return@withContext EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
 
         var uploaded = 0
         var failed = 0
@@ -168,129 +169,18 @@ class DataCaptureManager(private val context: Context) {
         } else {
             "Subida parcial: $uploaded/${files.size} (fallaron $failed)${if (lastError.isBlank()) "" else ". Último error: $lastError"}"
         }
-        return EdgeImpulseUploadResult(uploaded, failed, message)
+        EdgeImpulseUploadResult(uploaded, failed, message)
     }
 
     private fun uploadSingleFileToEdgeImpulse(file: File, apiKey: String): Pair<Boolean, String> {
-        val csvData = parseCsvForEdge(file)
-        if (csvData.isEmpty()) return false to "${file.name}: sin muestras válidas"
-
         val prefs = context.getSharedPreferences("dogfit_ble_mode", Context.MODE_PRIVATE)
         val deviceName = prefs.getString("qr_device_name", "")?.ifBlank { "pawactivity" } ?: "pawactivity"
-        val label = extractLabelFromFileName(file)
-        val payload = buildLegacyTrainingPayload(
-            deviceName = deviceName,
-            deviceType = "dogfit-collar",
-            intervalMs = estimateIntervalMs(file),
-            values = csvData
+        return edgeImpulseUploader.uploadCsvFile(
+            file = file,
+            apiKey = apiKey,
+            deviceName = deviceName
         )
-
-        val bodyBytes = payload.toString().toByteArray(Charsets.UTF_8)
-        val connection = (URL("https://ingestion.edgeimpulse.com/api/training/data").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 20000
-            readTimeout = 60000
-            doOutput = true
-            setRequestProperty("x-api-key", apiKey)
-            setRequestProperty("x-file-name", file.name)
-            setRequestProperty("x-label", label)
-            setRequestProperty("Content-Type", "application/json")
-            setFixedLengthStreamingMode(bodyBytes.size)
-        }
-
-        return try {
-            connection.outputStream.use { output ->
-                output.write(bodyBytes)
-            }
-            val responseCode = connection.responseCode
-            val success = responseCode in 200..299
-            if (success) {
-                true to ""
-            } else {
-                val errorBody = runCatching {
-                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                }.getOrElse { "" }
-                false to "HTTP $responseCode ${connection.responseMessage.orEmpty()} ${errorBody.take(180)}".trim()
-            }
-        } catch (e: Exception) {
-            false to (e.message ?: e::class.java.simpleName)
-        } finally {
-            connection.disconnect()
-        }
     }
-
-    private fun parseCsvForEdge(file: File): List<List<Double>> {
-        val rows = mutableListOf<List<Double>>()
-        file.useLines { lines ->
-            lines.drop(1).forEach { line ->
-                val parts = line.split(',')
-                if (parts.size < 7) return@forEach
-                val values = parts.drop(1).take(6).mapNotNull { it.toDoubleOrNull() }
-                if (values.size == 6) rows += values
-            }
-        }
-        return rows
-    }
-
-    private fun estimateIntervalMs(file: File): Double {
-        val timestamps = mutableListOf<Long>()
-        file.useLines { lines ->
-            lines.drop(1).forEach { line ->
-                val ts = line.substringBefore(',').toLongOrNull() ?: return@forEach
-                timestamps += ts
-            }
-        }
-        if (timestamps.size < 2) return 100.0
-        val deltas = timestamps.zipWithNext { a, b -> (b - a).coerceAtLeast(0L) }.filter { it > 0L }
-        if (deltas.isEmpty()) return 100.0
-        return deltas.average().coerceAtLeast(1.0)
-    }
-
-    private fun extractLabelFromFileName(file: File): String {
-        val name = file.nameWithoutExtension
-        val parts = name.split('_')
-        return parts.firstOrNull().orEmpty().ifBlank { "capture" }
-    }
-
-    private fun buildLegacyTrainingPayload(
-        deviceName: String,
-        deviceType: String,
-        intervalMs: Double,
-        values: List<List<Double>>
-    ): JSONObject {
-        val sensors = JSONArray().apply {
-            put(JSONObject().put("name", "ax").put("units", "g"))
-            put(JSONObject().put("name", "ay").put("units", "g"))
-            put(JSONObject().put("name", "az").put("units", "g"))
-            put(JSONObject().put("name", "gx").put("units", "dps"))
-            put(JSONObject().put("name", "gy").put("units", "dps"))
-            put(JSONObject().put("name", "gz").put("units", "dps"))
-        }
-
-        val valuesArray = JSONArray()
-        values.forEach { row ->
-            val rowArray = JSONArray()
-            row.forEach { rowArray.put(it) }
-            valuesArray.put(rowArray)
-        }
-
-        val payload = JSONObject().apply {
-            put("device_name", deviceName)
-            put("device_type", deviceType)
-            put("interval_ms", intervalMs)
-            put("sensors", sensors)
-            put("values", valuesArray)
-        }
-
-        return JSONObject().apply {
-            put("payload", payload)
-            put("protected", JSONObject().put("alg", "none").put("ver", "v1"))
-            put("signature", "00")
-        }
-    }
-
-    fun isCapturing(): Boolean = isCapturing
-    fun getLabelId(): Int = labelId
 
     private fun sanitizeForFileName(raw: String): String {
         val cleaned = raw

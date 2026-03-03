@@ -227,7 +227,7 @@ fun HistoryContent(
 
 @Composable
 fun TodaySummaryCard(stats: DailySummary?, activityTimes: Map<Int, Long>) {
-    val labels = listOf("Reposo", "Caminando", "Corriendo", "Jugando")
+    val labels = listOf("Caminando", "Corriendo", "Reposo", "Jugando")
     val colors = listOf(Color.Gray, Color(0xFF4CAF50), Color(0xFFFFC107), Color(0xFFFF5722))
 
     Card(
@@ -520,7 +520,7 @@ fun DateHeader(dateStr: String) {
 @Composable
 fun ActivityHistoryItem(summary: DogActivityData) {
     var expanded by remember { mutableStateOf(false) }
-    val labels = listOf("Reposo", "Caminando", "Corriendo", "Jugando")
+    val labels = listOf("Caminando", "Corriendo", "Reposo", "Jugando")
     val colors = listOf(Color.Gray, Color(0xFF4CAF50), Color(0xFFFFC107), Color(0xFFFF5722))
 
     Card(
