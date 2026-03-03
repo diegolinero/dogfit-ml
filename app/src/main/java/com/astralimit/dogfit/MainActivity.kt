@@ -670,12 +670,23 @@ fun MainScreen(
 
                 Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
 
+                val scope = rememberCoroutineScope()
+                var uploading by remember { mutableStateOf(false) }
+
                 Button(
                     onClick = {
-                        uploadStatus = onUploadEdgeImpulse()
+                        if (uploading) return@Button
+                        uploading = true
+                        uploadStatus = "Subiendo capturas..."
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { onUploadEdgeImpulse() }
+                            uploadStatus = result
+                            uploading = false
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Subir capturas a Edge Impulse (configurado por QR)") }
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uploading
+                ) { Text(if (uploading) "Subiendo..." else "Subir capturas a Edge Impulse (configurado por QR)") }
 
                 if (uploadStatus.isNotBlank()) {
                     Text(uploadStatus, style = MaterialTheme.typography.bodySmall)
