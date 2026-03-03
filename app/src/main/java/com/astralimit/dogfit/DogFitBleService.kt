@@ -9,11 +9,14 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONException
 import org.json.JSONObject
+import java.net.URLDecoder
 import java.util.*
 
 class DogFitBleService : Service() {
@@ -983,21 +986,102 @@ class DogFitBleService : Service() {
             return
         }
 
-        val parts = qrData.split("|")
-        if (parts.size < 3) {
-            Log.w(TAG, "QR con formato inesperado. Esperado: deviceName|userId|calibrationData")
-        }
+        val config = extractQrConfig(qrData)
+
+        modePrefs.edit()
+            .putString("qr_device_name", config.deviceName)
+            .putString("qr_user_id", config.userId)
+            .putString("qr_calibration", config.calibrationData)
+            .putString("qr_edge_api_key", config.edgeApiKey)
+            .putString("qr_raw", qrData.take(1024))
+            .apply()
+
+        Log.i(
+            TAG,
+            "QR configurado device=${config.deviceName} user=${config.userId} apiKey=${if (config.edgeApiKey.isBlank()) "no" else "si"}"
+        )
+    }
+
+    private data class QrConfig(
+        val deviceName: String,
+        val userId: String,
+        val calibrationData: String,
+        val edgeApiKey: String
+    )
+
+    private fun extractQrConfig(rawQr: String): QrConfig {
+        val trimmed = rawQr.trim()
+        val fromJson = parseQrJson(trimmed)
+        if (fromJson != null) return fromJson
+
+        val fromUri = parseQrUri(trimmed)
+        if (fromUri != null) return fromUri
+
+        val inlineApiKey = extractInlineApiKey(trimmed)
+        if (inlineApiKey.isNotBlank()) return QrConfig("", "", "", inlineApiKey)
+
+        val parts = trimmed.split("|")
         val deviceName = parts.getOrNull(0).orEmpty()
         val userId = parts.getOrNull(1).orEmpty()
         val calibrationData = parts.getOrNull(2).orEmpty()
+        val edgeApiKey = parts.getOrNull(3).orEmpty().ifBlank { extractInlineApiKey(trimmed) }
 
-        modePrefs.edit()
-            .putString("qr_device_name", deviceName)
-            .putString("qr_user_id", userId)
-            .putString("qr_calibration", calibrationData)
-            .apply()
+        return QrConfig(deviceName, userId, calibrationData, edgeApiKey)
+    }
+    private fun extractInlineApiKey(raw: String): String {
+        val decoded = decodeUrlComponent(raw)
 
-        Log.i(TAG, "QR configurado device=$deviceName user=$userId calibration=${calibrationData.take(24)}")
+        val regex = Regex("""(?i)(?:apiKey|api_key|edgeApiKey|edge_api_key|x-api-key)=([^&|\s#]+)""")
+        regex.find(decoded)?.groupValues?.getOrNull(1)?.let { return it.trim() }
+
+        val eiKeyRegex = Regex("""(?i)\b(ei_[a-z0-9_\-]+)\b""")
+        eiKeyRegex.find(decoded)?.groupValues?.getOrNull(1)?.let { return it.trim() }
+
+        return ""
+    }
+
+    private fun decodeUrlComponent(raw: String): String {
+        return runCatching { URLDecoder.decode(raw, Charsets.UTF_8.name()) }
+            .getOrElse { raw }
+    }
+
+    private fun parseQrJson(raw: String): QrConfig? {
+        if (!raw.startsWith("{")) return null
+        return try {
+            val json = JSONObject(raw)
+            QrConfig(
+                deviceName = json.optString("deviceName", json.optString("device_name", "")),
+                userId = json.optString("userId", json.optString("user_id", "")),
+                calibrationData = json.optString("calibrationData", json.optString("calibration", "")),
+                edgeApiKey = json.optString("apiKey", json.optString("api_key", json.optString("edge_api_key", "")))
+            )
+        } catch (_: JSONException) {
+            null
+        }
+    }
+
+    private fun parseQrUri(raw: String): QrConfig? {
+        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) return null
+        return QrConfig(
+            deviceName = uri.getQueryParameter("device")
+                ?: uri.getQueryParameter("deviceName")
+                ?: uri.getQueryParameter("device_name")
+                ?: "",
+            userId = uri.getQueryParameter("user")
+                ?: uri.getQueryParameter("userId")
+                ?: uri.getQueryParameter("user_id")
+                ?: "",
+            calibrationData = uri.getQueryParameter("calibration")
+                ?: uri.getQueryParameter("calibrationData")
+                ?: "",
+            edgeApiKey = uri.getQueryParameter("apiKey")
+                ?: uri.getQueryParameter("api_key")
+                ?: uri.getQueryParameter("edgeApiKey")
+                ?: uri.getQueryParameter("edge_api_key")
+                ?: uri.getQueryParameter("x-api-key")
+                ?: extractInlineApiKey(uri.fragment.orEmpty()).ifBlank { "" }
+        )
     }
 
     private fun createNotificationChannel() {
