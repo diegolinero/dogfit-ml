@@ -234,7 +234,9 @@ class MainActivity : ComponentActivity() {
                             Toast.makeText(this, "No hay archivos para exportar", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onUploadEdgeImpulse = { apiKey ->
+                    onUploadEdgeImpulse = {
+                        val prefs = getSharedPreferences("dogfit_ble_mode", Context.MODE_PRIVATE)
+                        val apiKey = prefs.getString("qr_edge_api_key", "").orEmpty()
                         val result = dataCaptureManager.uploadCapturedFilesToEdgeImpulse(apiKey.trim())
                         result.message
                     },
@@ -494,7 +496,7 @@ fun MainScreen(
     onScanQr: () -> Unit,
     onCaptureToggle: (String, Int, String, Boolean) -> Unit,
     onExportAll: () -> Unit,
-    onUploadEdgeImpulse: (String) -> String,
+    onUploadEdgeImpulse: () -> String,
     onOpenCapture: (CapturedSession) -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -526,9 +528,7 @@ fun MainScreen(
         )
     }
     var capturing by remember { mutableStateOf(false) }
-    var edgeImpulseApiKey by remember { mutableStateOf("") }
     var uploadStatus by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -670,23 +670,12 @@ fun MainScreen(
 
                 Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
 
-                OutlinedTextField(
-                    value = edgeImpulseApiKey,
-                    onValueChange = { edgeImpulseApiKey = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API key Edge Impulse") },
-                    placeholder = { Text("ei_...") }
-                )
-
                 Button(
                     onClick = {
-                        scope.launch {
-                            uploadStatus = onUploadEdgeImpulse(edgeImpulseApiKey)
-                        }
+                        uploadStatus = onUploadEdgeImpulse()
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = edgeImpulseApiKey.isNotBlank()
-                ) { Text("Subir capturas a Edge Impulse") }
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Subir capturas a Edge Impulse (configurado por QR)") }
 
                 if (uploadStatus.isNotBlank()) {
                     Text(uploadStatus, style = MaterialTheme.typography.bodySmall)

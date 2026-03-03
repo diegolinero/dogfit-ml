@@ -147,7 +147,7 @@ class DataCaptureManager(private val context: Context) {
     fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult {
         val files = listCapturedFiles()
         if (files.isEmpty()) return EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
-        if (apiKey.isBlank()) return EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse")
+        if (apiKey.isBlank()) return EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
 
         var uploaded = 0
         var failed = 0
