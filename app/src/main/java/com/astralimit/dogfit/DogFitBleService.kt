@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONException
 import org.json.JSONObject
+import java.net.URLDecoder
 import java.util.*
 
 class DogFitBleService : Service() {
@@ -992,6 +993,7 @@ class DogFitBleService : Service() {
             .putString("qr_user_id", config.userId)
             .putString("qr_calibration", config.calibrationData)
             .putString("qr_edge_api_key", config.edgeApiKey)
+            .putString("qr_raw", qrData.take(1024))
             .apply()
 
         Log.i(
@@ -1015,13 +1017,32 @@ class DogFitBleService : Service() {
         val fromUri = parseQrUri(trimmed)
         if (fromUri != null) return fromUri
 
+        val inlineApiKey = extractInlineApiKey(trimmed)
+        if (inlineApiKey.isNotBlank()) return QrConfig("", "", "", inlineApiKey)
+
         val parts = trimmed.split("|")
         val deviceName = parts.getOrNull(0).orEmpty()
         val userId = parts.getOrNull(1).orEmpty()
         val calibrationData = parts.getOrNull(2).orEmpty()
-        val edgeApiKey = parts.getOrNull(3).orEmpty()
+        val edgeApiKey = parts.getOrNull(3).orEmpty().ifBlank { extractInlineApiKey(trimmed) }
 
         return QrConfig(deviceName, userId, calibrationData, edgeApiKey)
+    }
+    private fun extractInlineApiKey(raw: String): String {
+        val decoded = decodeUrlComponent(raw)
+
+        val regex = Regex("""(?i)(?:apiKey|api_key|edgeApiKey|edge_api_key|x-api-key)=([^&|\s#]+)""")
+        regex.find(decoded)?.groupValues?.getOrNull(1)?.let { return it.trim() }
+
+        val eiKeyRegex = Regex("""(?i)\b(ei_[a-z0-9_\-]+)\b""")
+        eiKeyRegex.find(decoded)?.groupValues?.getOrNull(1)?.let { return it.trim() }
+
+        return ""
+    }
+
+    private fun decodeUrlComponent(raw: String): String {
+        return runCatching { URLDecoder.decode(raw, Charsets.UTF_8.name()) }
+            .getOrElse { raw }
     }
 
     private fun parseQrJson(raw: String): QrConfig? {
@@ -1057,8 +1078,9 @@ class DogFitBleService : Service() {
             edgeApiKey = uri.getQueryParameter("apiKey")
                 ?: uri.getQueryParameter("api_key")
                 ?: uri.getQueryParameter("edgeApiKey")
+                ?: uri.getQueryParameter("edge_api_key")
                 ?: uri.getQueryParameter("x-api-key")
-                ?: ""
+                ?: extractInlineApiKey(uri.fragment.orEmpty()).ifBlank { "" }
         )
     }
 
