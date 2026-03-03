@@ -531,9 +531,9 @@ fun MainScreen(
     var uploadStatus by remember { mutableStateOf("") }
 
     val currentStateLabel = when (activityValue) {
-        0 -> "Caminando"
-        1 -> "Corriendo"
-        2 -> "Reposo"
+        0 -> "Reposo"
+        1 -> "Caminando"
+        2 -> "Corriendo"
         3 -> "Jugando"
         else -> "Sin datos"
     }
