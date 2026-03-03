@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class CapturedSample(
     val timestamp: Long,
@@ -14,6 +16,14 @@ data class CapturedSample(
     val gx: Int,
     val gy: Int,
     val gz: Int
+)
+
+
+
+data class EdgeImpulseUploadResult(
+    val uploaded: Int,
+    val failed: Int,
+    val message: String
 )
 
 data class CapturedSession(
@@ -127,6 +137,54 @@ class DataCaptureManager(private val context: Context) {
             type = "text/csv"
             putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(context.contentResolver, "capturas", uris.first())
+            uris.drop(1).forEach { uri ->
+                clipData?.addItem(android.content.ClipData.Item(uri))
+            }
+        }
+    }
+
+    fun uploadCapturedFilesToEdgeImpulse(apiKey: String): EdgeImpulseUploadResult {
+        val files = listCapturedFiles()
+        if (files.isEmpty()) return EdgeImpulseUploadResult(0, 0, "No hay capturas para subir")
+        if (apiKey.isBlank()) return EdgeImpulseUploadResult(0, files.size, "Falta API key de Edge Impulse en el QR escaneado")
+
+        var uploaded = 0
+        var failed = 0
+        files.forEach { file ->
+            val ok = uploadSingleFileToEdgeImpulse(file, apiKey)
+            if (ok) uploaded++ else failed++
+        }
+        val message = if (failed == 0) {
+            "Subida completada: $uploaded/${files.size}"
+        } else {
+            "Subida parcial: $uploaded/${files.size} (fallaron $failed)"
+        }
+        return EdgeImpulseUploadResult(uploaded, failed, message)
+    }
+
+    private fun uploadSingleFileToEdgeImpulse(file: File, apiKey: String): Boolean {
+        val connection = (URL("https://ingestion.edgeimpulse.com/api/training/files").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15000
+            readTimeout = 20000
+            doOutput = true
+            setRequestProperty("x-api-key", apiKey)
+            setRequestProperty("x-file-name", file.name)
+            setRequestProperty("Content-Type", "text/csv")
+        }
+
+        return try {
+            file.inputStream().use { input ->
+                connection.outputStream.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            connection.responseCode in 200..299
+        } catch (_: Exception) {
+            false
+        } finally {
+            connection.disconnect()
         }
     }
 

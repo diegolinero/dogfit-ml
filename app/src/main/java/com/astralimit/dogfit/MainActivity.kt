@@ -233,6 +233,12 @@ class MainActivity : ComponentActivity() {
                             Toast.makeText(this, "No hay archivos para exportar", Toast.LENGTH_SHORT).show()
                         }
                     },
+                    onUploadEdgeImpulse = {
+                        val prefs = getSharedPreferences("dogfit_ble_mode", Context.MODE_PRIVATE)
+                        val apiKey = prefs.getString("qr_edge_api_key", "").orEmpty()
+                        val result = dataCaptureManager.uploadCapturedFilesToEdgeImpulse(apiKey.trim())
+                        result.message
+                    },
                     onOpenCapture = { session ->
                         val shareIntent = dataCaptureManager.buildShareIntent(session.file)
                         startActivity(Intent.createChooser(shareIntent, "Compartir captura"))
@@ -489,6 +495,7 @@ fun MainScreen(
     onScanQr: () -> Unit,
     onCaptureToggle: (String, Int, String, Boolean) -> Unit,
     onExportAll: () -> Unit,
+    onUploadEdgeImpulse: () -> String,
     onOpenCapture: (CapturedSession) -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -520,6 +527,7 @@ fun MainScreen(
         )
     }
     var capturing by remember { mutableStateOf(false) }
+    var uploadStatus by remember { mutableStateOf("") }
 
     val currentStateLabel = when (activityValue) {
         0 -> "Caminando"
@@ -535,7 +543,7 @@ fun MainScreen(
                 title = {
                     Column {
                         Text(
-                            text = "DogFit",
+                            text = "PawActivity",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -619,7 +627,7 @@ fun MainScreen(
                     Text("Label: $liveLabel")
                     Text("Confianza: $liveConfidence%")
                     LinearProgressIndicator(progress = { liveConfidence / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("IMU ax:${liveImu[0]} ay:${liveImu[1]} az:${liveImu[2]} gx:${liveImu[3]} gy:${liveImu[4]} gz:${liveImu[5]}")
+                    Text("IMU (suavizado) ax:${liveImu[0]} ay:${liveImu[1]} az:${liveImu[2]} gx:${liveImu[3]} gy:${liveImu[4]} gz:${liveImu[5]}")
                 }
             }
 
@@ -660,6 +668,17 @@ fun MainScreen(
                 ) { Text(if (capturing) "Detener captura" else "Iniciar captura") }
 
                 Button(onClick = onExportAll, modifier = Modifier.fillMaxWidth()) { Text("Exportar datos") }
+
+                Button(
+                    onClick = {
+                        uploadStatus = onUploadEdgeImpulse()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Subir capturas a Edge Impulse (configurado por QR)") }
+
+                if (uploadStatus.isNotBlank()) {
+                    Text(uploadStatus, style = MaterialTheme.typography.bodySmall)
+                }
 
                 Text("Capturas CSV", fontWeight = FontWeight.Bold)
                 capturedSessions.forEach { session ->

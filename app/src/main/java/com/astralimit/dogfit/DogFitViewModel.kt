@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -108,6 +109,11 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     private var pendingSinceMs: Long = 0L
     private val confThreshold = 60
     private val stableSwitchDelayMs = 600L
+
+    private val imuSmoothingWindow = 6
+    private val imuSamples = ArrayDeque<IntArray>()
+    private var lastImuUiUpdateMs = 0L
+    private val imuUiIntervalMs = 250L
 
     // Persistencia local para evitar pérdida de datos al reiniciar app
     private val prefs by lazy {
@@ -364,7 +370,22 @@ class DogFitViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateLiveImu(ax: Int, ay: Int, az: Int, gx: Int, gy: Int, gz: Int) {
-        _liveImuAxes.value = intArrayOf(ax, ay, az, gx, gy, gz)
+        val now = System.currentTimeMillis()
+        imuSamples.addLast(intArrayOf(ax, ay, az, gx, gy, gz))
+        while (imuSamples.size > imuSmoothingWindow) imuSamples.removeFirst()
+
+        if (now - lastImuUiUpdateMs < imuUiIntervalMs) return
+
+        val avg = IntArray(6)
+        imuSamples.forEach { sample ->
+            for (i in 0..5) avg[i] += sample[i]
+        }
+        for (i in 0..5) {
+            avg[i] = (avg[i].toFloat() / imuSamples.size).roundToInt()
+        }
+
+        _liveImuAxes.value = avg
+        lastImuUiUpdateMs = now
     }
 
     // =========================================================
